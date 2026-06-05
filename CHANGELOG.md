@@ -41,6 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   were previously unpriced: `mimo-v2.5-pro` / `xiaomi/mimo-v2.5-pro` reuse the
   DeepSeek V4-Pro rate table and `mimo-v2.5` / `xiaomi/mimo-v2.5` reuse the
   DeepSeek V4-Flash rates. Existing DeepSeek pricing is unchanged (#2731, #2750).
+- Added optional `[search].base_url` / `CODEWHALE_SEARCH_BASE_URL` support for
+  DuckDuckGo-compatible private search endpoints, while keeping
+  `DEEPSEEK_SEARCH_BASE_URL` as a legacy alias. Custom endpoints are gated by
+  their configured host, do not fall back to public Bing, and report the custom
+  host as the result source for diagnostics (#2436, #2510).
 
 ### Changed
 
@@ -154,8 +159,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Community
 
 Thanks to **@sximelon** for reporting and fixing the saved-session resume
-footer hint (#2758, #2760), **@cyq1017** for the restore-listing implementation
-(#2513) and pending-input delivery-mode label work (#2532, #2054),
+footer hint (#2758, #2760), **@cyq1017** for the custom
+DuckDuckGo-compatible search endpoint, restore-listing implementation, and
+pending-input delivery-mode label work (#2510, #2513, #2532, #2054),
+**@Artenx** for the private-search endpoint report (#2436),
 **@wywsoor** for the broader macOS/iTerm rollback UX report (#2494),
 **@HUQIANTAO** for the `web_run` lock-splitting work (#2502), turn-metadata
 prefix-cache stability work (#2517), and project-context cache direction

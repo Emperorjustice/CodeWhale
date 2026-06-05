@@ -1116,6 +1116,11 @@ pub struct SearchConfig {
     /// Search provider: `bing` | `duckduckgo` | `tavily` | `bocha` | `metaso` | `baidu` | `volcengine`. Default: `duckduckgo`.
     #[serde(default)]
     pub provider: Option<SearchProvider>,
+    /// Optional DuckDuckGo-compatible HTML endpoint. When set with the
+    /// DuckDuckGo provider, `web_search` appends the `q` query parameter to
+    /// this URL instead of using `https://html.duckduckgo.com/html/`.
+    #[serde(default)]
+    pub base_url: Option<String>,
     /// API key for Tavily, Bocha, Metaso, Baidu, or Volcengine. Not required for Bing or DuckDuckGo.
     /// Metaso also falls back to `METASO_API_KEY` env var, then a built-in default.
     /// Baidu also falls back to `BAIDU_SEARCH_API_KEY` env var.
@@ -3803,6 +3808,12 @@ fn apply_env_overrides(config: &mut Config) {
             .get_or_insert_with(SearchConfig::default)
             .api_key = Some(value);
     }
+    if let Ok(value) = codewhale_env_var("CODEWHALE_SEARCH_BASE_URL", "DEEPSEEK_SEARCH_BASE_URL") {
+        config
+            .search
+            .get_or_insert_with(SearchConfig::default)
+            .base_url = Some(value);
+    }
     if let Ok(value) = std::env::var("DEEPSEEK_REQUIREMENTS_PATH") {
         config.requirements_path = Some(value);
     }
@@ -5525,6 +5536,25 @@ mod tests {
     }
 
     #[test]
+    fn search_config_preserves_custom_base_url() {
+        let config: Config = toml::from_str(
+            r#"
+            [search]
+            provider = "duckduckgo"
+            base_url = "https://search.internal.example/html/"
+            "#,
+        )
+        .expect("search config");
+
+        let search = config.search.expect("search table");
+        assert_eq!(search.provider, Some(SearchProvider::DuckDuckGo));
+        assert_eq!(
+            search.base_url.as_deref(),
+            Some("https://search.internal.example/html/")
+        );
+    }
+
+    #[test]
     fn explicit_baidu_search_provider_is_preserved() {
         let config: Config = toml::from_str(
             r#"
@@ -5664,6 +5694,61 @@ mod tests {
         assert_eq!(
             config.search.and_then(|search| search.api_key),
             Some("search-env-key".to_string())
+        );
+    }
+
+    #[test]
+    fn apply_env_overrides_sets_search_base_url() {
+        let _guard = lock_test_env();
+        let prev_codewhale = env::var_os("CODEWHALE_SEARCH_BASE_URL");
+        let prev_deepseek = env::var_os("DEEPSEEK_SEARCH_BASE_URL");
+        unsafe {
+            env::remove_var("CODEWHALE_SEARCH_BASE_URL");
+            env::set_var(
+                "DEEPSEEK_SEARCH_BASE_URL",
+                "https://search.internal.example/html/",
+            )
+        };
+        let mut config = Config::default();
+
+        apply_env_overrides(&mut config);
+
+        unsafe {
+            EnvGuard::restore_var("CODEWHALE_SEARCH_BASE_URL", prev_codewhale);
+            EnvGuard::restore_var("DEEPSEEK_SEARCH_BASE_URL", prev_deepseek);
+        }
+        assert_eq!(
+            config.search.and_then(|search| search.base_url),
+            Some("https://search.internal.example/html/".to_string())
+        );
+    }
+
+    #[test]
+    fn codewhale_search_base_url_env_wins_over_legacy_alias() {
+        let _guard = lock_test_env();
+        let prev_codewhale = env::var_os("CODEWHALE_SEARCH_BASE_URL");
+        let prev_deepseek = env::var_os("DEEPSEEK_SEARCH_BASE_URL");
+        unsafe {
+            env::set_var(
+                "CODEWHALE_SEARCH_BASE_URL",
+                "https://codewhale-search.example/html/",
+            );
+            env::set_var(
+                "DEEPSEEK_SEARCH_BASE_URL",
+                "https://legacy-search.example/html/",
+            );
+        }
+        let mut config = Config::default();
+
+        apply_env_overrides(&mut config);
+
+        unsafe {
+            EnvGuard::restore_var("CODEWHALE_SEARCH_BASE_URL", prev_codewhale);
+            EnvGuard::restore_var("DEEPSEEK_SEARCH_BASE_URL", prev_deepseek);
+        }
+        assert_eq!(
+            config.search.and_then(|search| search.base_url),
+            Some("https://codewhale-search.example/html/".to_string())
         );
     }
 
