@@ -1952,9 +1952,13 @@ fn should_skip_secret_store_for_provider(
 fn env_api_key_for_provider(provider: ProviderKind) -> Option<String> {
     if provider == ProviderKind::Huggingface {
         return std::env::var("HUGGINGFACE_API_KEY")
-            .or_else(|_| std::env::var("HF_TOKEN"))
             .ok()
-            .filter(|value| !value.trim().is_empty());
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| {
+                std::env::var("HF_TOKEN")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty())
+            });
     }
 
     codewhale_secrets::env_for(provider.as_str())
@@ -4823,6 +4827,24 @@ model = "mimo-v2.5-pro"
         assert_eq!(resolved.api_key.as_deref(), Some("hf-token-fallback"));
         assert_eq!(resolved.base_url, "https://hf-short.example/v1");
         assert_eq!(resolved.model, "org/short-model");
+    }
+
+    #[test]
+    fn huggingface_token_fallback_resolves_when_primary_api_key_is_blank() {
+        let _lock = env_lock();
+        let _env = EnvGuard::without_deepseek_runtime_overrides();
+        // Safety: test-only environment mutation guarded by a module mutex.
+        unsafe {
+            env::set_var("CODEWHALE_PROVIDER", "huggingface");
+            env::set_var("HUGGINGFACE_API_KEY", " ");
+            env::set_var("HF_TOKEN", "hf-token-fallback");
+        }
+
+        let resolved =
+            ConfigToml::default().resolve_runtime_options(&CliRuntimeOverrides::default());
+
+        assert_eq!(resolved.provider, ProviderKind::Huggingface);
+        assert_eq!(resolved.api_key.as_deref(), Some("hf-token-fallback"));
     }
 
     #[test]
