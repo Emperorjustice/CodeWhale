@@ -301,19 +301,19 @@ fn word_cursor_modifier_accepts_control_and_alt() {
 #[test]
 fn normalize_macos_modifiers_maps_super_to_control() {
     use crate::tui::composer_ui::normalize_macos_modifiers;
-    // SUPER (Cmd) without CONTROL should gain CONTROL.
+    // SUPER (Cmd) without CONTROL should gain CONTROL and lose SUPER.
     let normalized = normalize_macos_modifiers(KeyModifiers::SUPER);
     assert!(normalized.contains(KeyModifiers::CONTROL));
-    assert!(normalized.contains(KeyModifiers::SUPER));
+    assert!(!normalized.contains(KeyModifiers::SUPER));
 }
 
 #[test]
 fn normalize_macos_modifiers_preserves_existing_control() {
     use crate::tui::composer_ui::normalize_macos_modifiers;
-    // CONTROL already set — shouldn't be removed.
+    // CONTROL already set — SUPER should be removed.
     let normalized = normalize_macos_modifiers(KeyModifiers::CONTROL | KeyModifiers::SUPER);
     assert!(normalized.contains(KeyModifiers::CONTROL));
-    assert!(normalized.contains(KeyModifiers::SUPER));
+    assert!(!normalized.contains(KeyModifiers::SUPER));
 }
 
 #[test]
