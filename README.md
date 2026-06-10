@@ -222,7 +222,11 @@ Current v0.9 track credits:
 - **[yusufgurdogan](https://github.com/yusufgurdogan)** — Sofya search
   provider implementation harvested as a non-default search backend (#2790)
 - **[LeoAlex0](https://github.com/LeoAlex0)** — runtime prompt metadata cache
-  direction harvested into the v0.9 prompt/cache path (#2687)
+  direction harvested into the v0.9 prompt/cache path (#2687);
+  `allow_shell` prefix-cache decoupling and `visibility="internal"`
+  explanation for mode-flip stability (#2949, #2951)
+- **[hongchen1993](https://github.com/hongchen1993)** — Volcengine provider
+  in TUI dispatcher and dispatcher API-key preference (#2923, #2928)
 - **[NASLXTO](https://github.com/NASLXTO)** and
   **[wuxixing](https://github.com/wuxixing)** — large-workspace startup
   reports that shaped the bounded project-context fallback (#697, #1827)
@@ -279,7 +283,7 @@ Current and recurring contributors include:
 - **[wlon](https://github.com/wlon)** — NVIDIA NIM provider API-key preference diagnosis (#1081)
 - **[Horace Liu](https://github.com/liuhq)** — Nix package support and install documentation (#1173)
 - **[jieshu666](https://github.com/jieshu666)** — terminal repaint flicker reduction (#1563)
-- **[gordonlu](https://github.com/gordonlu)** — Windows Enter / CSI-u input fix (#1612)
+- **[gordonlu](https://github.com/gordonlu)** — Windows Enter / CSI-u input fix, status picker localization (7 MessageIds), and approval dialog localization across 7 locales (#1612, #2896, #2891)
 - **[mdrkrg](https://github.com/mdrkrg)** — first-run onboarding crash fix when the API key is missing (#1598)
 - **[Aitensa](https://github.com/Aitensa)** — CJK wrapping propagation for diff and pager output (#1622)
 - **[qiyan233](https://github.com/qiyan233)** — legacy DeepSeek CN provider alias compatibility (#1645)

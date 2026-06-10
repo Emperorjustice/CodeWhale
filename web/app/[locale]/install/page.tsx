@@ -9,8 +9,8 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   return {
     title: isZh ? "安装 · CodeWhale" : "Install · CodeWhale",
     description: isZh
-      ? "安装 CodeWhale 的 codewhale / codewhale-tui 二进制对。v0.8.54 推荐 Cargo、GitHub Releases、CNB、Homebrew、预编译二进制、Docker、国内镜像。"
-      : "Install the matched codewhale / codewhale-tui binary pair. For v0.8.54 use Cargo, GitHub Releases, CNB, Homebrew, prebuilt binary, Docker, or source.",
+      ? "安装 CodeWhale 的 codewhale / codewhale-tui 二进制对。v0.8.56 推荐 Cargo、GitHub Releases、CNB、Homebrew、预编译二进制、Docker、国内镜像。"
+      : "Install the matched codewhale / codewhale-tui binary pair. For v0.8.56 use Cargo, GitHub Releases, CNB, Homebrew, prebuilt binary, Docker, or source.",
   };
 }
 
@@ -26,9 +26,9 @@ const SET_KEY_BASH = `export DEEPSEEK_API_KEY=sk-...`;
 const SET_KEY_AUTH = `codewhale auth set --provider deepseek --api-key sk-...`;
 
 const RELEASE_DOWNLOAD = `# Download your platform archive:
-https://github.com/Hmbown/CodeWhale/releases/tag/v0.8.54`;
-const CNB_INSTALL = `cargo install --git https://cnb.cool/codewhale.net/codewhale --tag v0.8.54 codewhale-cli --locked --force
-cargo install --git https://cnb.cool/codewhale.net/codewhale --tag v0.8.54 codewhale-tui --locked --force`;
+https://github.com/Hmbown/CodeWhale/releases/tag/v0.8.56`;
+const CNB_INSTALL = `cargo install --git https://cnb.cool/codewhale.net/codewhale --tag v0.8.56 codewhale-cli --locked --force
+cargo install --git https://cnb.cool/codewhale.net/codewhale --tag v0.8.56 codewhale-tui --locked --force`;
 const TUNA_CONFIG = `# ~/.cargo/config.toml
 [source.crates-io]
 replace-with = "tuna"
@@ -107,12 +107,12 @@ export default async function InstallPage({ params }: { params: Promise<{ locale
         <p className="mt-4 text-sm text-ink-soft leading-relaxed max-w-2xl">
           {isZh ? (
             <>
-              v0.8.54 推荐通过 Cargo 安装已发布的 crates。npm wrapper 暂缓发布，直到 release asset 发布路径加固完成。
+              v0.8.56 推荐通过 Cargo 安装已发布的 crates。npm wrapper 暂缓发布，直到 release asset 发布路径加固完成。
               下方「其他安装方式」列出 GitHub Releases、CNB、国内镜像、Homebrew、预编译二进制等替代选项。
             </>
           ) : (
             <>
-              For v0.8.54, install the published Cargo crates. The npm wrapper is deferred
+              For v0.8.56, install the published Cargo crates. The npm wrapper is deferred
               while the release asset publication path is hardened. See{" "}
               <a href="#other-ways" className="body-link">Other ways to install</a> below for
               GitHub Releases, CNB, Homebrew, prebuilt binaries, or mainland China mirrors.
@@ -324,12 +324,12 @@ export default async function InstallPage({ params }: { params: Promise<{ locale
               <p className="mt-4 text-sm text-ink-soft leading-relaxed max-w-2xl">
                 {isZh ? (
                   <>
-                    v0.8.54 的 npm wrapper 暂缓发布。Cargo + Tuna 或 CNB 路径可以绕开 GitHub 下载瓶颈。
+                    v0.8.56 的 npm wrapper 暂缓发布。Cargo + Tuna 或 CNB 路径可以绕开 GitHub 下载瓶颈。
                     DeepSeek API（<code className="inline">api.deepseek.com</code>）在国内直连，无需代理。
                   </>
                 ) : (
                   <>
-                    The npm wrapper is deferred for v0.8.54. Cargo + Tuna or the CNB path routes
+                    The npm wrapper is deferred for v0.8.56. Cargo + Tuna or the CNB path routes
                     around GitHub download bottlenecks. The DeepSeek API at{" "}
                     <code className="inline">api.deepseek.com</code> is reachable from mainland China
                     without a proxy.

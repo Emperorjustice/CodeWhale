@@ -482,7 +482,7 @@ export default async function HomePage({ params }: { params: Promise<{ locale: s
         <div className="flex items-baseline gap-4 mb-5 hairline-b pb-4">
           <Seal char="谢" />
           <div>
-            <div className="eyebrow mb-2">{isZh ? "v0.8.48 致谢" : "v0.8.48 credits"}</div>
+            <div className="eyebrow mb-2">{isZh ? "v0.8.56 致谢" : "v0.8.56 credits"}</div>
             <h2 className="font-display text-3xl">
               {isZh ? "每个补丁和报告都算数" : "Every patch and report counts"}
             </h2>
@@ -495,7 +495,7 @@ export default async function HomePage({ params }: { params: Promise<{ locale: s
                 ? "这一版合并和吸收了来自社区的大量工作。完整条目在 CHANGELOG 中；这里保留最新发布的公开致谢入口。"
                 : "This release merged and harvested a large community tranche. The full notes live in the changelog; this keeps the latest public credit surface easy to find."}
             </p>
-            <Link href="https://github.com/Hmbown/CodeWhale/blob/main/CHANGELOG.md#0848---2026-05-31" className="inline-block mt-4 font-mono text-xs uppercase tracking-wider text-indigo hover:underline">
+            <Link href="https://github.com/Hmbown/CodeWhale/blob/main/CHANGELOG.md#0856---2026-06-09" className="inline-block mt-4 font-mono text-xs uppercase tracking-wider text-indigo hover:underline">
               {isZh ? "查看完整 changelog →" : "Full changelog →"}
             </Link>
           </div>
