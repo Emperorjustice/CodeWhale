@@ -2798,10 +2798,10 @@ use self::lsp_hooks::edited_paths_for_tool;
 #[cfg(test)]
 use self::streaming::TOOL_CALL_START_MARKERS;
 use self::streaming::{
-    ContentBlockKind, FAKE_WRAPPER_NOTICE, MAX_STREAM_ERRORS_BEFORE_FAIL,
+    ContentBlockKind, FAKE_WRAPPER_NOTICE, MAX_STREAM_ERRORS_BEFORE_FAIL, MAX_STREAM_RETRIES,
     MAX_TRANSPARENT_STREAM_RETRIES, STREAM_MAX_CONTENT_BYTES, STREAM_MAX_DURATION_SECS,
-    ToolUseState, contains_fake_tool_wrapper, filter_tool_call_delta,
-    should_transparently_retry_stream,
+    ToolUseState, contains_fake_tool_wrapper, filter_tool_call_delta, should_resume_after_sleep,
+    should_transparently_retry_stream, sleep_gap_detected,
 };
 use self::tool_catalog::{
     CODE_EXECUTION_TOOL_NAME, JS_EXECUTION_TOOL_NAME, MULTI_TOOL_PARALLEL_NAME,

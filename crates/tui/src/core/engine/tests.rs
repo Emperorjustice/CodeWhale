@@ -3701,6 +3701,71 @@ fn stream_retry_respects_cancellation() {
     );
 }
 
+// === #2990 sleep-resume policy ================================================
+
+#[test]
+fn sleep_gap_requires_wallclock_to_outrun_monotonic_clock() {
+    use std::time::Duration;
+    // No divergence: ordinary network failure, clocks agree.
+    assert!(
+        !super::sleep_gap_detected(Duration::from_secs(30), Duration::from_secs(30)),
+        "equal elapsed times must not register as a sleep gap"
+    );
+    // Divergence below the threshold: NTP slew / scheduling jitter.
+    assert!(
+        !super::sleep_gap_detected(Duration::from_secs(5), Duration::from_secs(14)),
+        "9s of divergence is below the 10s threshold"
+    );
+    // Divergence above the threshold: the host was suspended.
+    assert!(
+        super::sleep_gap_detected(Duration::from_secs(5), Duration::from_secs(16)),
+        "11s of divergence must register as a sleep gap"
+    );
+    // Wall clock went backwards (NTP step): saturating_sub → zero gap.
+    assert!(
+        !super::sleep_gap_detected(Duration::from_secs(60), Duration::from_secs(5)),
+        "wall clock behind monotonic must never register as a sleep gap"
+    );
+}
+
+#[test]
+fn sleep_resume_retries_even_after_content_streamed() {
+    // The whole point of #2990: unlike the #103 transparent retry, a
+    // detected sleep gap retries regardless of streamed content — the
+    // partial output predates the sleep and the user was not watching.
+    assert!(
+        super::should_resume_after_sleep(true, 0, false),
+        "detected sleep with full budget must resume"
+    );
+    assert!(
+        super::should_resume_after_sleep(true, super::MAX_STREAM_RETRIES - 1, false),
+        "detected sleep one short of the budget must still resume"
+    );
+}
+
+#[test]
+fn sleep_resume_requires_a_detected_gap() {
+    // Without a sleep gap this layer stays out of the way entirely, so the
+    // deliberate no-retry-after-content policy for ordinary flakes (#103)
+    // is preserved.
+    assert!(
+        !super::should_resume_after_sleep(false, 0, false),
+        "no sleep gap → never resume via this layer"
+    );
+}
+
+#[test]
+fn sleep_resume_respects_budget_and_cancellation() {
+    assert!(
+        !super::should_resume_after_sleep(true, super::MAX_STREAM_RETRIES, false),
+        "budget exhausted → surface the failure instead of looping"
+    );
+    assert!(
+        !super::should_resume_after_sleep(true, 0, true),
+        "cancelled turn must not be resumed behind the user's back"
+    );
+}
+
 #[test]
 fn stream_retry_threshold_relaxed_to_five() {
     // Case 1+4 from issue #103: the consecutive-error threshold for marking
