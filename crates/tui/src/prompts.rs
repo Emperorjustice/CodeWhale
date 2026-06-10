@@ -2338,7 +2338,10 @@ mod tests {
         // output since no separate personality overlay is appended.
         let calm = compose_prompt(Personality::Calm);
         let playful = compose_prompt(Personality::Playful);
-        assert_eq!(calm, playful, "personality enum is a no-op — both produce identical output");
+        assert_eq!(
+            calm, playful,
+            "personality enum is a no-op — both produce identical output"
+        );
         assert!(calm.contains("Rule Number 6 applies"));
         assert!(calm.contains("You begin with an A"));
     }
