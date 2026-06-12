@@ -14,7 +14,224 @@ mod stash;
 pub(in crate::commands) use self::core::reset_conversation_state;
 
 use crate::commands::CommandResult;
+use crate::commands::traits::{Command, CommandGroup, CommandInfo, FunctionCommand};
+use crate::localization::MessageId;
 use crate::tui::app::{App, AppAction};
+
+pub struct CoreCommands;
+
+impl CommandGroup for CoreCommands {
+    fn commands(&self) -> Vec<Box<dyn Command>> {
+        vec![
+            Box::new(FunctionCommand::new(&ANCHOR_INFO, run_anchor)),
+            Box::new(FunctionCommand::new(&HELP_INFO, run_help)),
+            Box::new(FunctionCommand::new(&CLEAR_INFO, run_clear)),
+            Box::new(FunctionCommand::new(&EXIT_INFO, run_exit)),
+            Box::new(FunctionCommand::new(&MODEL_INFO, run_model)),
+            Box::new(FunctionCommand::new(&MODELS_INFO, run_models)),
+            Box::new(FunctionCommand::new(&PROVIDER_INFO, run_provider)),
+            Box::new(FunctionCommand::new(&QUEUE_INFO, run_queue)),
+            Box::new(FunctionCommand::new(&STASH_INFO, run_stash)),
+            Box::new(FunctionCommand::new(&HOOKS_INFO, run_hooks)),
+            Box::new(FunctionCommand::new(&SUBAGENTS_INFO, run_subagents)),
+            Box::new(FunctionCommand::new(&AGENT_INFO, run_agent)),
+            Box::new(FunctionCommand::new(&LINKS_INFO, run_links)),
+            Box::new(FunctionCommand::new(&FEEDBACK_INFO, run_feedback)),
+            Box::new(FunctionCommand::new(&HF_INFO, run_hf)),
+            Box::new(FunctionCommand::new(&HOME_INFO, run_home)),
+            Box::new(FunctionCommand::new(&WORKSPACE_INFO, run_workspace)),
+            Box::new(FunctionCommand::new(&PROFILE_INFO, run_profile)),
+            Box::new(FunctionCommand::new(&RLM_INFO, run_rlm)),
+            Box::new(FunctionCommand::new(&TRANSLATE_INFO, run_translate)),
+        ]
+    }
+}
+
+static ANCHOR_INFO: CommandInfo = CommandInfo {
+    name: "anchor",
+    aliases: &["maodian"],
+    usage: "/anchor <text> | /anchor list | /anchor remove <n>",
+    description_id: MessageId::CmdAnchorDescription,
+};
+static HELP_INFO: CommandInfo = CommandInfo {
+    name: "help",
+    aliases: &["?", "bangzhu", "帮助"],
+    usage: "/help [command]",
+    description_id: MessageId::CmdHelpDescription,
+};
+static CLEAR_INFO: CommandInfo = CommandInfo {
+    name: "clear",
+    aliases: &["qingping"],
+    usage: "/clear",
+    description_id: MessageId::CmdClearDescription,
+};
+static EXIT_INFO: CommandInfo = CommandInfo {
+    name: "exit",
+    aliases: &["quit", "q", "tuichu"],
+    usage: "/exit",
+    description_id: MessageId::CmdExitDescription,
+};
+static MODEL_INFO: CommandInfo = CommandInfo {
+    name: "model",
+    aliases: &["moxing"],
+    usage: "/model [name]",
+    description_id: MessageId::CmdModelDescription,
+};
+static MODELS_INFO: CommandInfo = CommandInfo {
+    name: "models",
+    aliases: &["moxingliebiao"],
+    usage: "/models",
+    description_id: MessageId::CmdModelsDescription,
+};
+static PROVIDER_INFO: CommandInfo = CommandInfo {
+    name: "provider",
+    aliases: &[],
+    usage: "/provider [name] [model]",
+    description_id: MessageId::CmdProviderDescription,
+};
+static QUEUE_INFO: CommandInfo = CommandInfo {
+    name: "queue",
+    aliases: &["queued"],
+    usage: "/queue [list|edit <n>|drop <n>|clear]",
+    description_id: MessageId::CmdQueueDescription,
+};
+static STASH_INFO: CommandInfo = CommandInfo {
+    name: "stash",
+    aliases: &["park"],
+    usage: "/stash [list|pop|clear]",
+    description_id: MessageId::CmdStashDescription,
+};
+static HOOKS_INFO: CommandInfo = CommandInfo {
+    name: "hooks",
+    aliases: &["hook", "gouzi"],
+    usage: "/hooks [list|events]",
+    description_id: MessageId::CmdHooksDescription,
+};
+static SUBAGENTS_INFO: CommandInfo = CommandInfo {
+    name: "subagents",
+    aliases: &["agents", "zhinengti"],
+    usage: "/subagents",
+    description_id: MessageId::CmdSubagentsDescription,
+};
+static AGENT_INFO: CommandInfo = CommandInfo {
+    name: "agent",
+    aliases: &["daili"],
+    usage: "/agent [N] <task>",
+    description_id: MessageId::CmdAgentDescription,
+};
+static LINKS_INFO: CommandInfo = CommandInfo {
+    name: "links",
+    aliases: &["dashboard", "api", "lianjie"],
+    usage: "/links",
+    description_id: MessageId::CmdLinksDescription,
+};
+static FEEDBACK_INFO: CommandInfo = CommandInfo {
+    name: "feedback",
+    aliases: &[],
+    usage: "/feedback [bug|feature|security]",
+    description_id: MessageId::CmdFeedbackDescription,
+};
+static HF_INFO: CommandInfo = CommandInfo {
+    name: "hf",
+    aliases: &["huggingface"],
+    usage: "/hf [mcp <status|setup>|concepts]",
+    description_id: MessageId::CmdHfDescription,
+};
+static HOME_INFO: CommandInfo = CommandInfo {
+    name: "home",
+    aliases: &["stats", "overview", "zhuye", "shouye"],
+    usage: "/home",
+    description_id: MessageId::CmdHomeDescription,
+};
+static WORKSPACE_INFO: CommandInfo = CommandInfo {
+    name: "workspace",
+    aliases: &["cwd"],
+    usage: "/workspace [path]",
+    description_id: MessageId::CmdWorkspaceDescription,
+};
+static PROFILE_INFO: CommandInfo = CommandInfo {
+    name: "profile",
+    aliases: &["dangan"],
+    usage: "/profile <name>",
+    description_id: MessageId::CmdHelpDescription,
+};
+static RLM_INFO: CommandInfo = CommandInfo {
+    name: "rlm",
+    aliases: &["recursive", "digui"],
+    usage: "/rlm [N] <file_or_text>",
+    description_id: MessageId::CmdRlmDescription,
+};
+static TRANSLATE_INFO: CommandInfo = CommandInfo {
+    name: "translate",
+    aliases: &["translation", "transale"],
+    usage: "/translate",
+    description_id: MessageId::CmdTranslateDescription,
+};
+
+fn run_registered(app: &mut App, name: &str, arg: Option<&str>) -> CommandResult {
+    dispatch(app, name, arg).expect("registered core command should dispatch")
+}
+
+fn run_anchor(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "anchor", arg)
+}
+fn run_help(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "help", arg)
+}
+fn run_clear(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "clear", arg)
+}
+fn run_exit(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "exit", arg)
+}
+fn run_model(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "model", arg)
+}
+fn run_models(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "models", arg)
+}
+fn run_provider(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "provider", arg)
+}
+fn run_queue(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "queue", arg)
+}
+fn run_stash(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "stash", arg)
+}
+fn run_hooks(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "hooks", arg)
+}
+fn run_subagents(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "subagents", arg)
+}
+fn run_agent(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "agent", arg)
+}
+fn run_links(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "links", arg)
+}
+fn run_feedback(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "feedback", arg)
+}
+fn run_hf(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "hf", arg)
+}
+fn run_home(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "home", arg)
+}
+fn run_workspace(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "workspace", arg)
+}
+fn run_profile(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "profile", arg)
+}
+fn run_rlm(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "rlm", arg)
+}
+fn run_translate(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "translate", arg)
+}
 
 pub(in crate::commands) fn dispatch(
     app: &mut App,

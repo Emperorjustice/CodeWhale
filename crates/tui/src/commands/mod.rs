@@ -1,19 +1,18 @@
 //! Slash command registry and dispatch system
 //!
 //! This module provides a modular command system inspired by Codex-rs.
-//! Commands are organized by category and dispatched through a central registry.
-//! Built-in handlers live in group-owned areas under [`groups`]; this module
-//! keeps parsing, registry metadata, user-command precedence, and the
+//! Commands are organized by category and dispatched through a central strategy
+//! registry. Built-in handlers live in group-owned areas under [`groups`]; this
+//! module keeps registry construction, user-command precedence, and the
 //! fall-through behaviour.
 
 mod groups;
-mod parse;
-mod registry;
+pub mod traits;
 pub mod user_commands;
 
-use parse::parse_slash_command;
-use registry::suggest_command_names;
-pub use registry::{COMMANDS, get_command_info};
+use std::sync::OnceLock;
+
+pub use traits::CommandInfo;
 
 // Long-standing public paths that predate the group layout.
 pub use groups::project::share;
@@ -78,37 +77,68 @@ impl CommandResult {
     }
 }
 
+static REGISTRY: OnceLock<traits::CommandRegistry> = OnceLock::new();
+
+fn build_registry() -> traits::CommandRegistry {
+    let mut registry = traits::CommandRegistry::empty();
+    for group in groups::all_command_groups() {
+        registry.register_group(group);
+    }
+    registry
+}
+
+pub fn registry() -> &'static traits::CommandRegistry {
+    REGISTRY.get_or_init(build_registry)
+}
+
+pub fn command_infos() -> Vec<&'static CommandInfo> {
+    registry().infos()
+}
+
+pub fn get_command_info(name: &str) -> Option<&'static CommandInfo> {
+    registry().get_info(name)
+}
+
 /// Execute a slash command
 pub fn execute(cmd: &str, app: &mut App) -> CommandResult {
-    let parsed = parse_slash_command(cmd);
-    let command = parsed.name.as_str();
-    let arg = parsed.arg;
+    let trimmed = cmd.trim();
+    let parts: Vec<&str> = trimmed.splitn(2, char::is_whitespace).collect();
+    let command = parts
+        .first()
+        .copied()
+        .unwrap_or_default()
+        .trim_start_matches('/')
+        .to_ascii_lowercase();
+    let arg = parts
+        .get(1)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty());
 
     // Check user-defined commands FIRST so they can override built-ins.
-    if let Some(result) = user_commands::try_dispatch_user_command(app, cmd.trim()) {
+    if let Some(result) = user_commands::try_dispatch_user_command(app, trimmed) {
         return result;
     }
 
-    // Built-in commands are owned by their group areas; each group claims
-    // the names it owns and returns None for everything else.
-    type GroupDispatcher = fn(&mut App, &str, Option<&str>) -> Option<CommandResult>;
-    let group_dispatchers: [GroupDispatcher; 8] = [
-        groups::core::dispatch,
-        groups::session::dispatch,
-        groups::config::dispatch,
-        groups::debug::dispatch,
-        groups::project::dispatch,
-        groups::skills::dispatch,
-        groups::memory::dispatch,
-        groups::utility::dispatch,
-    ];
-    for dispatch in group_dispatchers {
-        if let Some(result) = dispatch(app, command, arg) {
-            return result;
+    // Compatibility aliases whose historical behavior also supplied an arg.
+    match command.as_str() {
+        "jihua" => {
+            return groups::config::dispatch(app, "jihua", arg).unwrap_or_else(|| {
+                CommandResult::error("The /jihua alias could not be dispatched.")
+            });
         }
+        "zidong" => {
+            return groups::config::dispatch(app, "zidong", arg).unwrap_or_else(|| {
+                CommandResult::error("The /zidong alias could not be dispatched.")
+            });
+        }
+        _ => {}
     }
 
-    match command {
+    if let Some(command_object) = registry().get(command.as_str()) {
+        return command_object.execute(app, arg);
+    }
+
+    match command.as_str() {
         // Legacy command migrations (kept out of registry/autocomplete intentionally).
         "set" => CommandResult::error(
             "The /set command was retired. Use /config to edit settings and /settings to inspect current values.",
@@ -120,10 +150,10 @@ pub fn execute(cmd: &str, app: &mut App) -> CommandResult {
         _ => {
             // Third source: skills (lowest precedence after native and user-config).
             // Try to run a skill whose name matches the command.
-            if let Some(result) = groups::skills::run_skill_by_name(app, command, arg) {
+            if let Some(result) = groups::skills::run_skill_by_name(app, command.as_str(), arg) {
                 return result;
             }
-            let suggestions = suggest_command_names(command, 3);
+            let suggestions = suggest_command_names(command.as_str(), 3);
             if suggestions.is_empty() {
                 CommandResult::error(format!(
                     "Unknown command: /{command}. Type /help for available commands."
@@ -149,6 +179,86 @@ pub fn set_config_value(app: &mut App, key: &str, value: &str, persist: bool) ->
 
 pub fn switch_mode(app: &mut App, mode: crate::tui::app::AppMode) -> String {
     groups::config::config::switch_mode(app, mode)
+}
+
+fn edit_distance(a: &str, b: &str) -> usize {
+    if a == b {
+        return 0;
+    }
+    if a.is_empty() {
+        return b.chars().count();
+    }
+    if b.is_empty() {
+        return a.chars().count();
+    }
+
+    let b_chars: Vec<char> = b.chars().collect();
+    let mut previous: Vec<usize> = (0..=b_chars.len()).collect();
+    let mut current = vec![0usize; b_chars.len() + 1];
+
+    for (i, a_ch) in a.chars().enumerate() {
+        current[0] = i + 1;
+        for (j, b_ch) in b_chars.iter().enumerate() {
+            let cost = if a_ch == *b_ch { 0 } else { 1 };
+            let delete = previous[j + 1] + 1;
+            let insert = current[j] + 1;
+            let substitute = previous[j] + cost;
+            current[j + 1] = delete.min(insert).min(substitute);
+        }
+        std::mem::swap(&mut previous, &mut current);
+    }
+
+    previous[b_chars.len()]
+}
+
+fn suggest_command_names(input: &str, limit: usize) -> Vec<String> {
+    let query = input.trim().to_ascii_lowercase();
+    if query.is_empty() || limit == 0 {
+        return Vec::new();
+    }
+
+    let mut scored: Vec<(u8, usize, String)> = Vec::new();
+    for command in registry().infos() {
+        let mut best: Option<(u8, usize)> = None;
+        for candidate in std::iter::once(command.name).chain(command.aliases.iter().copied()) {
+            let prefix_match = candidate.starts_with(&query) || query.starts_with(candidate);
+            let contains_match = candidate.contains(&query) || query.contains(candidate);
+            let distance = edit_distance(candidate, &query);
+            let close_typo = distance <= 2;
+            if !(prefix_match || contains_match || close_typo) {
+                continue;
+            }
+
+            let rank = if prefix_match {
+                0
+            } else if contains_match {
+                1
+            } else {
+                2
+            };
+
+            match best {
+                Some((best_rank, best_distance))
+                    if rank > best_rank || (rank == best_rank && distance >= best_distance) => {}
+                _ => best = Some((rank, distance)),
+            }
+        }
+
+        if let Some((rank, distance)) = best {
+            scored.push((rank, distance, command.name.to_string()));
+        }
+    }
+
+    scored.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| a.1.cmp(&b.1))
+            .then_with(|| a.2.cmp(&b.2))
+    });
+    scored
+        .into_iter()
+        .take(limit)
+        .map(|(_, _, name)| name)
+        .collect()
 }
 
 #[cfg(test)]
@@ -191,9 +301,9 @@ mod tests {
 
     #[test]
     fn command_registry_contains_config_and_links_but_not_set_or_deepseek() {
-        assert!(COMMANDS.iter().any(|cmd| cmd.name == "config"));
-        let sidebar = COMMANDS
-            .iter()
+        assert!(command_infos().iter().any(|cmd| cmd.name == "config"));
+        let sidebar = command_infos()
+            .into_iter()
             .find(|cmd| cmd.name == "sidebar")
             .expect("sidebar command should exist");
         assert_eq!(sidebar.description_id, MessageId::CmdSidebarDescription);
@@ -202,23 +312,23 @@ mod tests {
                 .description_for(Locale::En)
                 .contains("right sidebar")
         );
-        assert!(COMMANDS.iter().any(|cmd| cmd.name == "links"));
-        let hf = COMMANDS
-            .iter()
+        assert!(command_infos().iter().any(|cmd| cmd.name == "links"));
+        let hf = command_infos()
+            .into_iter()
             .find(|cmd| cmd.name == "hf")
             .expect("hf command should exist");
         assert_eq!(hf.aliases, &["huggingface"]);
         assert_eq!(hf.description_id, MessageId::CmdHfDescription);
         assert!(hf.description_for(Locale::En).contains("Hugging Face"));
-        assert!(COMMANDS.iter().any(|cmd| cmd.name == "memory"));
-        assert!(!COMMANDS.iter().any(|cmd| cmd.name == "set"));
-        assert!(!COMMANDS.iter().any(|cmd| cmd.name == "deepseek"));
+        assert!(command_infos().iter().any(|cmd| cmd.name == "memory"));
+        assert!(!command_infos().iter().any(|cmd| cmd.name == "set"));
+        assert!(!command_infos().iter().any(|cmd| cmd.name == "deepseek"));
     }
 
     #[test]
     fn links_command_has_dashboard_and_api_aliases() {
-        let links = COMMANDS
-            .iter()
+        let links = command_infos()
+            .into_iter()
             .find(|cmd| cmd.name == "links")
             .expect("links command should exist");
         assert_eq!(links.aliases, &["dashboard", "api", "lianjie"]);
@@ -324,8 +434,8 @@ mod tests {
 
     #[test]
     fn relay_command_has_bilingual_aliases() {
-        let relay = COMMANDS
-            .iter()
+        let relay = command_infos()
+            .into_iter()
             .find(|cmd| cmd.name == "relay")
             .expect("relay command should exist");
         assert_eq!(relay.aliases, &["batonpass", "接力"]);
@@ -344,7 +454,7 @@ mod tests {
     #[test]
     fn command_registry_has_unique_names_and_aliases() {
         let mut names = std::collections::BTreeSet::new();
-        for command in COMMANDS {
+        for command in command_infos() {
             assert!(
                 names.insert(command.name),
                 "duplicate command name /{}",
@@ -353,7 +463,7 @@ mod tests {
         }
 
         let mut aliases = std::collections::BTreeSet::new();
-        for command in COMMANDS {
+        for command in command_infos() {
             for alias in command.aliases {
                 assert!(
                     !names.contains(alias),
@@ -366,7 +476,7 @@ mod tests {
 
     #[test]
     fn command_registry_metadata_is_complete_and_palette_safe() {
-        for command in COMMANDS {
+        for command in command_infos() {
             assert!(!command.name.is_empty(), "command name must not be empty");
             assert_eq!(
                 command.name.trim(),
@@ -445,7 +555,7 @@ mod tests {
 
     #[test]
     fn command_info_resolves_canonical_names_and_aliases() {
-        for command in COMMANDS {
+        for command in command_infos() {
             for lookup in [command.name.to_string(), format!("/{}", command.name)] {
                 let resolved = get_command_info(&lookup)
                     .unwrap_or_else(|| panic!("{lookup:?} should resolve to /{}", command.name));
@@ -466,7 +576,7 @@ mod tests {
     #[test]
     fn every_registered_command_has_a_help_topic() {
         let mut app = create_test_app();
-        for command in COMMANDS {
+        for command in command_infos() {
             let result = execute(&format!("/help {}", command.name), &mut app);
             assert!(
                 !result.is_error,
@@ -492,8 +602,8 @@ mod tests {
 
     #[test]
     fn context_command_opens_inspector_and_keeps_ctx_alias() {
-        let context = COMMANDS
-            .iter()
+        let context = command_infos()
+            .into_iter()
             .find(|cmd| cmd.name == "context")
             .expect("context command should exist");
         assert_eq!(context.aliases, &["ctx"]);
@@ -729,10 +839,10 @@ mod tests {
         (app, tmpdir, guard)
     }
 
-    /// Smoke test: every entry in `COMMANDS` must dispatch to a real handler.
+    /// Smoke test: every entry in `command_infos()` must dispatch to a real handler.
     /// A dispatch miss surfaces as the fall-through `Unknown command:` error
     /// message in `execute`. This catches the case where a new command is
-    /// added to `COMMANDS` (so it shows up in `/help` and the palette) but
+    /// added to `command_infos()` (so it shows up in `/help` and the palette) but
     /// the matching arm in `execute` is forgotten — the user would type the
     /// command, see it autocomplete, and then get an unhelpful "did you
     /// mean" suggestion. Also catches panics in handlers because the test
@@ -838,17 +948,17 @@ mod tests {
         assert!(tokens.contains("deepseek-v4-pro"));
     }
 
-    /// Smoke test: every entry in `COMMANDS` must dispatch to a real handler.
+    /// Smoke test: every entry in `command_infos()` must dispatch to a real handler.
     /// A dispatch miss surfaces as the fall-through `Unknown command:` error
     /// message in `execute`. This catches the case where a new command is
-    /// added to `COMMANDS` (so it shows up in `/help` and the palette) but
+    /// added to `command_infos()` (so it shows up in `/help` and the palette) but
     /// the matching arm in `execute` is forgotten — the user would type the
     /// command, see it autocomplete, and then get an unhelpful "did you
     /// mean" suggestion. Also catches panics in handlers because the test
     /// runner unwinds the panic and reports the offending command.
     #[test]
     fn every_registered_command_dispatches_to_a_handler() {
-        for command in COMMANDS {
+        for command in command_infos() {
             if skip_in_dispatch_smoke(command.name) {
                 continue;
             }
@@ -869,7 +979,7 @@ mod tests {
     /// just because the registry lists it as an alias of `/exit`.
     #[test]
     fn every_command_alias_dispatches_to_a_handler() {
-        for command in COMMANDS {
+        for command in command_infos() {
             if skip_in_dispatch_smoke(command.name) {
                 continue;
             }

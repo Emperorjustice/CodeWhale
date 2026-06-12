@@ -8,7 +8,74 @@ mod network;
 mod task;
 
 use crate::commands::CommandResult;
+use crate::commands::traits::{Command, CommandGroup, CommandInfo, FunctionCommand};
+use crate::localization::MessageId;
 use crate::tui::app::App;
+
+pub struct UtilityCommands;
+
+impl CommandGroup for UtilityCommands {
+    fn commands(&self) -> Vec<Box<dyn Command>> {
+        vec![
+            Box::new(FunctionCommand::new(&ATTACH_INFO, run_attach)),
+            Box::new(FunctionCommand::new(&TASK_INFO, run_task)),
+            Box::new(FunctionCommand::new(&JOBS_INFO, run_jobs)),
+            Box::new(FunctionCommand::new(&MCP_INFO, run_mcp)),
+            Box::new(FunctionCommand::new(&NETWORK_INFO, run_network)),
+        ]
+    }
+}
+
+static ATTACH_INFO: CommandInfo = CommandInfo {
+    name: "attach",
+    aliases: &["image", "media", "fujian"],
+    usage: "/attach <path>",
+    description_id: MessageId::CmdAttachDescription,
+};
+static TASK_INFO: CommandInfo = CommandInfo {
+    name: "task",
+    aliases: &["tasks"],
+    usage: "/task [add <prompt>|list|show <id>|cancel <id>]",
+    description_id: MessageId::CmdTaskDescription,
+};
+static JOBS_INFO: CommandInfo = CommandInfo {
+    name: "jobs",
+    aliases: &["job", "zuoye"],
+    usage: "/jobs [list|show <id>|poll <id>|wait <id>|stdin <id> <input>|cancel <id>]",
+    description_id: MessageId::CmdJobsDescription,
+};
+static MCP_INFO: CommandInfo = CommandInfo {
+    name: "mcp",
+    aliases: &[],
+    usage: "/mcp [init|add stdio <name> <command> [args...]|add http <name> <url>|enable <name>|disable <name>|remove <name>|validate|reload]",
+    description_id: MessageId::CmdMcpDescription,
+};
+static NETWORK_INFO: CommandInfo = CommandInfo {
+    name: "network",
+    aliases: &[],
+    usage: "/network [list|allow <host>|deny <host>|remove <host>|default <allow|deny|prompt>]",
+    description_id: MessageId::CmdNetworkDescription,
+};
+
+fn run_registered(app: &mut App, name: &str, arg: Option<&str>) -> CommandResult {
+    dispatch(app, name, arg).expect("registered utility command should dispatch")
+}
+
+fn run_attach(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "attach", arg)
+}
+fn run_task(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "task", arg)
+}
+fn run_jobs(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "jobs", arg)
+}
+fn run_mcp(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "mcp", arg)
+}
+fn run_network(app: &mut App, arg: Option<&str>) -> CommandResult {
+    run_registered(app, "network", arg)
+}
 
 pub(in crate::commands) fn dispatch(
     app: &mut App,

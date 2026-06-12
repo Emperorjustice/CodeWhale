@@ -2313,7 +2313,7 @@ pub(crate) fn slash_completion_hints(
     // ── Phase 2: contains (substring) matches ─────────────────────────
     // Medium priority — broader catching.
     if completing_skill_arg.is_none() {
-        for cmd in commands::COMMANDS {
+        for cmd in commands::command_infos() {
             let name = format!("/{}", cmd.name);
             if seen.contains(&name) {
                 continue;
@@ -2340,7 +2340,7 @@ pub(crate) fn slash_completion_hints(
     // ── Phase 3: fuzzy subsequence matches ────────────────────────────
     // Lowest priority — characters in order, not necessarily consecutive.
     if completing_skill_arg.is_none() {
-        for cmd in commands::COMMANDS {
+        for cmd in commands::command_infos() {
             let name = format!("/{}", cmd.name);
             if seen.contains(&name) {
                 continue;
@@ -2457,7 +2457,7 @@ fn all_command_names_matching_loaded(
     user_commands: &[(String, String)],
 ) -> Vec<String> {
     let prefix = prefix.strip_prefix('/').unwrap_or(prefix).to_lowercase();
-    let mut result: Vec<String> = commands::COMMANDS
+    let mut result: Vec<String> = commands::command_infos()
         .iter()
         .filter(|cmd| {
             cmd.name.starts_with(&prefix) || cmd.aliases.iter().any(|a| a.starts_with(&prefix))
