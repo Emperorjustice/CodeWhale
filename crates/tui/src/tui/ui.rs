@@ -135,7 +135,7 @@ use super::slash_menu::{
     apply_slash_menu_selection, partial_inline_skill_mention_at_cursor,
     try_autocomplete_slash_command, visible_slash_menu_entries,
 };
-use super::views::{ConfigView, HelpView, ModalKind, ViewEvent};
+use super::views::{ConfigView, ContextMenuAction, HelpView, ModalKind, ViewEvent};
 use super::widgets::pending_input_preview::{ContextPreviewItem, PendingInputPreview};
 use super::widgets::{ChatWidget, ComposerWidget, HeaderData, HeaderWidget, Renderable};
 
@@ -8146,9 +8146,24 @@ async fn handle_view_events(
                 app.status_message = Some("Backtrack canceled".to_string());
                 app.needs_redraw = true;
             }
-            ViewEvent::ContextMenuSelected { action } => {
-                handle_context_menu_action(app, action);
+            ViewEvent::ContextMenuSelected {
+                action: ContextMenuAction::ExecuteCommand { command },
+            } => {
+                if execute_command_input(
+                    terminal,
+                    app,
+                    engine_handle,
+                    task_manager,
+                    config,
+                    &mut *web_config_session,
+                    &command,
+                )
+                .await?
+                {
+                    return Ok(true);
+                }
             }
+            ViewEvent::ContextMenuSelected { action } => handle_context_menu_action(app, action),
         }
     }
 

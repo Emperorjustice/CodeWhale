@@ -76,6 +76,10 @@ pub enum ContextMenuAction {
     },
     /// Show all currently hidden cells.
     ShowAllHidden,
+    /// Execute a slash command associated with a contextual UI row.
+    ExecuteCommand {
+        command: String,
+    },
 }
 
 #[derive(Debug, Clone)]

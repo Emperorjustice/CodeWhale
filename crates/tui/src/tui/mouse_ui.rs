@@ -660,14 +660,25 @@ pub(crate) fn open_context_menu(app: &mut App, mouse: MouseEvent) {
 
 pub(crate) fn build_context_menu_entries(app: &App, mouse: MouseEvent) -> Vec<ContextMenuEntry> {
     let mut entries = Vec::new();
+    let on_sidebar = mouse_hits_rect(mouse, app.viewport.last_sidebar_area);
 
-    // Paste first — the most common action when right-clicking in the
-    // composer after copying text from the output area.
-    entries.push(ContextMenuEntry {
-        label: app.tr(MessageId::CtxMenuPaste).to_string(),
-        description: app.tr(MessageId::CtxMenuPasteDesc).to_string(),
-        action: ContextMenuAction::Paste,
-    });
+    if on_sidebar {
+        if let Some(command) = sidebar_click_action(app, mouse) {
+            entries.push(ContextMenuEntry {
+                label: "Run".to_string(),
+                description: command.clone(),
+                action: ContextMenuAction::ExecuteCommand { command },
+            });
+        }
+    } else {
+        // Paste first — the most common action when right-clicking in the
+        // composer or transcript after copying text from the output area.
+        entries.push(ContextMenuEntry {
+            label: app.tr(MessageId::CtxMenuPaste).to_string(),
+            description: app.tr(MessageId::CtxMenuPasteDesc).to_string(),
+            action: ContextMenuAction::Paste,
+        });
+    }
 
     if selection_has_content(app) {
         entries.push(ContextMenuEntry {
@@ -687,7 +698,7 @@ pub(crate) fn build_context_menu_entries(app: &App, mouse: MouseEvent) -> Vec<Co
         });
     }
 
-    if let Some(filtered_cell_index) = transcript_cell_index_from_mouse(app, mouse) {
+    if !on_sidebar && let Some(filtered_cell_index) = transcript_cell_index_from_mouse(app, mouse) {
         let cell_index = app.original_cell_index_for_rendered(filtered_cell_index);
 
         let target = detail_target_label(app, cell_index)
@@ -788,6 +799,11 @@ pub(crate) fn handle_context_menu_action(app: &mut App, action: ContextMenuActio
         }
         ContextMenuAction::Paste => {
             app.paste_from_clipboard();
+        }
+        ContextMenuAction::ExecuteCommand { command } => {
+            app.input = command;
+            app.status_message = Some("Command staged in composer".to_string());
+            app.needs_redraw = true;
         }
         ContextMenuAction::OpenCommandPalette => {
             app.view_stack
@@ -1026,9 +1042,10 @@ pub(crate) fn selection_to_text(app: &App) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::sidebar_click_action;
+    use super::{build_context_menu_entries, sidebar_click_action};
     use crate::config::Config;
     use crate::tui::app::{App, SidebarHoverRow, SidebarHoverSection, TuiOptions};
+    use crate::tui::views::ContextMenuAction;
     use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
     use ratatui::layout::Rect;
     use std::path::PathBuf;
@@ -1076,6 +1093,75 @@ mod tests {
             row,
             modifiers: KeyModifiers::NONE,
         }
+    }
+
+    fn right_click(column: u16, row: u16) -> MouseEvent {
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        }
+    }
+
+    #[test]
+    fn context_menu_keeps_paste_first_outside_sidebar() {
+        let mut app = create_test_app();
+        app.viewport.last_sidebar_area = Some(Rect::new(60, 4, 20, 6));
+
+        let entries = build_context_menu_entries(&app, right_click(10, 4));
+
+        assert!(matches!(
+            entries.first().map(|entry| &entry.action),
+            Some(ContextMenuAction::Paste)
+        ));
+    }
+
+    #[test]
+    fn sidebar_context_menu_omits_paste_without_row_action() {
+        let mut app = create_test_app();
+        app.viewport.last_sidebar_area = Some(Rect::new(60, 4, 20, 6));
+        app.sidebar_hover.sections.push(SidebarHoverSection {
+            content_area: Rect::new(60, 4, 20, 6),
+            lines: vec!["header".to_string()],
+            rows: vec![hover_row(4, None)],
+        });
+
+        let entries = build_context_menu_entries(&app, right_click(65, 4));
+
+        assert!(
+            !entries
+                .iter()
+                .any(|entry| matches!(entry.action, ContextMenuAction::Paste)),
+            "sidebar menu should not offer paste: {entries:?}"
+        );
+    }
+
+    #[test]
+    fn sidebar_context_menu_runs_clickable_row_action() {
+        let mut app = create_test_app();
+        app.viewport.last_sidebar_area = Some(Rect::new(60, 4, 20, 6));
+        app.sidebar_hover.sections.push(SidebarHoverSection {
+            content_area: Rect::new(60, 4, 20, 6),
+            lines: vec!["job row".to_string()],
+            rows: vec![hover_row(4, Some("/jobs show shell_x"))],
+        });
+
+        let entries = build_context_menu_entries(&app, right_click(65, 4));
+
+        let first = entries.first().expect("sidebar row should have menu");
+        assert_eq!(first.label, "Run");
+        assert_eq!(first.description, "/jobs show shell_x");
+        assert!(matches!(
+            &first.action,
+            ContextMenuAction::ExecuteCommand { command } if command == "/jobs show shell_x"
+        ));
+        assert!(
+            !entries
+                .iter()
+                .any(|entry| matches!(entry.action, ContextMenuAction::Paste)),
+            "clickable sidebar menu should not offer paste: {entries:?}"
+        );
     }
 
     #[test]
