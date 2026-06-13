@@ -489,6 +489,48 @@ fn tool_execution_batches_use_serial_barriers() {
 }
 
 #[test]
+fn shell_readonly_plans_batch_around_serial_barrier() {
+    let mut shell_a = make_plan_at(0, true, true, false, false);
+    shell_a.name = "exec_shell".to_string();
+    shell_a.input = json!({"command": "git status -s"});
+    let mut shell_b = make_plan_at(1, true, true, false, false);
+    shell_b.name = "exec_shell".to_string();
+    shell_b.input = json!({"command": "git log --oneline -5"});
+    let mut write_shell = make_plan_at(2, false, false, true, false);
+    write_shell.name = "exec_shell".to_string();
+    write_shell.input = json!({"command": "cargo build"});
+    let mut shell_c = make_plan_at(3, true, true, false, false);
+    shell_c.name = "exec_shell".to_string();
+    shell_c.input = json!({"command": "bash -lc 'rg TODO crates/tui/src/core'"});
+
+    let batches = plan_tool_execution_batches(vec![shell_a, shell_b, write_shell, shell_c]);
+    assert_eq!(batches.len(), 3);
+
+    match &batches[0] {
+        ToolExecutionBatch::Parallel(plans) => {
+            assert_eq!(
+                plans.iter().map(|plan| plan.index).collect::<Vec<_>>(),
+                vec![0, 1]
+            );
+        }
+        ToolExecutionBatch::Serial(_) => panic!("first batch should be parallel"),
+    }
+    match &batches[1] {
+        ToolExecutionBatch::Serial(plan) => assert_eq!(plan.index, 2),
+        ToolExecutionBatch::Parallel(_) => panic!("write shell should be a serial barrier"),
+    }
+    match &batches[2] {
+        ToolExecutionBatch::Parallel(plans) => {
+            assert_eq!(
+                plans.iter().map(|plan| plan.index).collect::<Vec<_>>(),
+                vec![3]
+            );
+        }
+        ToolExecutionBatch::Serial(_) => panic!("third batch should be parallel"),
+    }
+}
+
+#[test]
 fn successful_update_plan_ends_plan_mode_turn_immediately() {
     assert!(should_stop_after_plan_tool(
         AppMode::Plan,

@@ -2849,6 +2849,8 @@ mod tool_setup;
 mod turn_loop;
 pub(crate) use token_estimate_cache::TokenEstimateCache;
 
+pub(super) const MAX_PARALLEL_SHELL_EXEC: usize = 4;
+
 pub(crate) fn default_active_native_tool_names() -> &'static [&'static str] {
     tool_catalog::DEFAULT_ACTIVE_NATIVE_TOOLS
 }

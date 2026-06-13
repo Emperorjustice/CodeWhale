@@ -1530,10 +1530,11 @@ impl Engine {
                 } else if let Some(registry) = tool_registry
                     && let Some(spec) = registry.get(&tool_name)
                 {
-                    approval_required = spec.approval_requirement() != ApprovalRequirement::Auto;
+                    approval_required =
+                        spec.approval_requirement_for(&tool_input) != ApprovalRequirement::Auto;
                     approval_description = spec.description().to_string();
-                    supports_parallel = spec.supports_parallel();
-                    read_only = spec.is_read_only();
+                    supports_parallel = spec.supports_parallel_for(&tool_input);
+                    read_only = spec.is_read_only_for(&tool_input);
                 } else if tool_name == CODE_EXECUTION_TOOL_NAME {
                     approval_required = true;
                     approval_description =
@@ -1666,6 +1667,8 @@ impl Engine {
 
                 if parallel_allowed {
                     let mut tool_tasks = FuturesUnordered::new();
+                    let shell_permits =
+                        Arc::new(tokio::sync::Semaphore::new(MAX_PARALLEL_SHELL_EXEC));
                     for plan in plans {
                         if let Some(result) = plan.guard_result.clone() {
                             let result = Ok(result);
@@ -1704,8 +1707,14 @@ impl Engine {
                         let tx_event = self.tx_event.clone();
                         let session_id = self.session.id.clone();
                         let started_at = Instant::now();
+                        let shell_permits = shell_permits.clone();
 
                         tool_tasks.push(async move {
+                            let _shell_permit = if plan.name == "exec_shell" {
+                                shell_permits.acquire_owned().await.ok()
+                            } else {
+                                None
+                            };
                             let mut result = Engine::execute_tool_with_lock(
                                 lock,
                                 plan.supports_parallel,
