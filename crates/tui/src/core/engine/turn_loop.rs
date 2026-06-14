@@ -1764,7 +1764,8 @@ impl Engine {
                             } else {
                                 None
                             };
-                            let mut result = Engine::execute_tool_with_lock(
+                            let mut result = Engine::execute_tool_with_heartbeat(
+                                plan.id.clone(),
                                 lock,
                                 plan.supports_parallel || plan.detached_start,
                                 plan.interactive,
@@ -2120,7 +2121,8 @@ impl Engine {
                         let mut result = if let Some(result_override) = result_override {
                             result_override
                         } else {
-                            Self::execute_tool_with_lock(
+                            Self::execute_tool_with_heartbeat(
+                                tool_id.clone(),
                                 tool_exec_lock.clone(),
                                 plan.supports_parallel,
                                 plan.interactive,

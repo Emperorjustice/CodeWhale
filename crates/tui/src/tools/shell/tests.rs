@@ -581,6 +581,57 @@ fn test_job_list_poll_cancel_and_stale_snapshot() {
 }
 
 #[test]
+fn running_job_snapshot_marks_no_output_stale_after_threshold() {
+    let tmp = tempdir().expect("tempdir");
+    let mut manager = ShellManager::new(tmp.path().to_path_buf());
+
+    let started = manager
+        .execute(&sleep_command(5), None, 5000, true)
+        .expect("execute");
+    let task_id = started.task_id.expect("task id");
+
+    {
+        let shell = manager.processes.get_mut(&task_id).expect("live shell");
+        shell.last_output_at = Instant::now() - STALE_NO_OUTPUT_AFTER - Duration::from_millis(1);
+    }
+
+    let job = manager
+        .list_jobs()
+        .into_iter()
+        .find(|job| job.id == task_id)
+        .expect("running job");
+
+    assert_eq!(job.status, ShellStatus::Running);
+    assert!(job.stale, "silent running job should be marked stale");
+    assert!(
+        job.elapsed_since_output_ms
+            .is_some_and(|elapsed| elapsed >= STALE_NO_OUTPUT_AFTER.as_millis() as u64),
+        "elapsed no-output time should be exposed: {job:?}"
+    );
+}
+
+#[test]
+fn running_job_snapshot_keeps_recent_no_output_fresh() {
+    let tmp = tempdir().expect("tempdir");
+    let mut manager = ShellManager::new(tmp.path().to_path_buf());
+
+    let started = manager
+        .execute(&sleep_command(5), None, 5000, true)
+        .expect("execute");
+    let task_id = started.task_id.expect("task id");
+
+    let job = manager
+        .list_jobs()
+        .into_iter()
+        .find(|job| job.id == task_id)
+        .expect("running job");
+
+    assert_eq!(job.status, ShellStatus::Running);
+    assert!(!job.stale, "fresh running job should not start stale");
+    assert!(job.elapsed_since_output_ms.is_some());
+}
+
+#[test]
 fn test_job_cancel_updates_completion_state() {
     let tmp = tempdir().expect("tempdir");
     let mut manager = ShellManager::new(tmp.path().to_path_buf());
