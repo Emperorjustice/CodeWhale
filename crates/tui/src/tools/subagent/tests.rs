@@ -751,6 +751,8 @@ async fn interrupted_projection_exposes_checkpoint_metadata_and_messages() {
     assert_eq!(projection.status, "interrupted");
     assert!(projection.terminal);
     assert!(projection.continuable);
+    assert!(projection.needs_continuation);
+    assert!(!projection.timed_out_with_checkpoint);
     assert_eq!(
         projection
             .checkpoint
@@ -775,6 +777,12 @@ async fn interrupted_projection_exposes_checkpoint_metadata_and_messages() {
             .map(message_text),
         Some("inspect checkpoint recovery")
     );
+
+    let timed_out_projection =
+        subagent_session_projection(projection.snapshot.clone(), true, &ctx, None).await;
+    assert!(timed_out_projection.needs_continuation);
+    assert!(timed_out_projection.timed_out);
+    assert!(timed_out_projection.timed_out_with_checkpoint);
 }
 
 #[test]
@@ -1645,6 +1653,7 @@ async fn api_timeout_preserves_checkpoint_and_agent_eval_continues_from_it() {
         serde_json::from_str(&result.content).expect("projection deserializes");
     assert_eq!(projection.status, "interrupted");
     assert!(projection.continuable);
+    assert!(projection.needs_continuation);
     assert!(projection.checkpoint.is_some());
 
     let result = tool

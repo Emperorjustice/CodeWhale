@@ -2723,7 +2723,11 @@ pub struct SubAgentSessionProjection {
     #[serde(default, skip_serializing_if = "is_false")]
     pub continuable: bool,
     #[serde(default, skip_serializing_if = "is_false")]
+    pub needs_continuation: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
     pub timed_out: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub timed_out_with_checkpoint: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worker_record: Option<AgentWorkerRecord>,
 }
@@ -2766,6 +2770,7 @@ async fn subagent_session_projection(
     worker_record: Option<AgentWorkerRecord>,
 ) -> SubAgentSessionProjection {
     let transcript_session_id = format!("agent:{}", snapshot.agent_id);
+    let continuable = subagent_checkpoint_is_continuable(&snapshot);
     let transcript_payload = json!({
         "kind": "subagent_session_snapshot",
         "agent_id": snapshot.agent_id.clone(),
@@ -2778,6 +2783,8 @@ async fn subagent_session_projection(
         "duration_ms": snapshot.duration_ms,
         "assignment": snapshot.assignment.clone(),
         "checkpoint": snapshot.checkpoint.clone(),
+        "needs_continuation": continuable,
+        "timed_out_with_checkpoint": timed_out && continuable,
         "snapshot": snapshot.clone(),
     });
     let transcript_handle = {
@@ -2856,9 +2863,11 @@ async fn subagent_session_projection(
         usage,
         verification,
         checkpoint: snapshot.checkpoint.clone(),
-        continuable: subagent_checkpoint_is_continuable(&snapshot),
+        continuable,
+        needs_continuation: continuable,
         snapshot,
         timed_out,
+        timed_out_with_checkpoint: timed_out && continuable,
         worker_record,
     }
 }
