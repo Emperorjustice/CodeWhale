@@ -43,6 +43,7 @@ declare -a ONLY_PROVIDERS=()
 default_model_for() {
     case "$1" in
         deepseek) echo "deepseek-chat" ;;
+        arcee) echo "trinity-large-thinking" ;;
         zai) echo "glm-4-flash" ;;
         moonshot) echo "moonshot-v1-8k" ;;
         openai) echo "gpt-4o-mini" ;;

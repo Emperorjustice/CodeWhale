@@ -28,6 +28,8 @@ use tokio::sync::{Mutex, RwLock};
 use tower_http::cors::CorsLayer;
 use uuid::Uuid;
 
+mod chat_completions;
+
 const DEFAULT_CORS_ORIGINS: &[&str] = &[
     "http://localhost",
     "http://localhost:1420",
@@ -155,6 +157,10 @@ fn app_router(state: AppState, cors_origins: &[String]) -> Router {
 
     Router::new()
         .route("/healthz", get(healthz))
+        .route(
+            "/v1/chat/completions",
+            post(chat_completions::chat_completions_handler),
+        )
         .merge(protected_routes)
         .layer(cors_layer(cors_origins))
         .with_state(state)

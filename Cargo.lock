@@ -799,6 +799,7 @@ dependencies = [
  "codewhale-protocol",
  "codewhale-state",
  "codewhale-tools",
+ "reqwest",
  "rustls",
  "serde",
  "serde_json",
