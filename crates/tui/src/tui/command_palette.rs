@@ -54,30 +54,65 @@ pub fn build_entries(
     mcp_snapshot: Option<&crate::mcp::McpManagerSnapshot>,
 ) -> Vec<CommandPaletteEntry> {
     let mut entries = Vec::new();
-
-    for command in commands::command_infos() {
-        let mut description = command.palette_description_for(locale);
-        if command.requires_argument() {
-            description.push_str("  ");
-            description.push_str(command.usage);
+    commands::user_registry::with_registry_for_workspace(Some(workspace), |user_registry| {
+        for command in commands::command_infos() {
+            if user_registry.get(command.name).is_some() {
+                continue;
+            }
+            let mut description =
+                palette_description_for_unshadowed_aliases(command, locale, user_registry);
+            if command.requires_argument() {
+                description.push_str("  ");
+                description.push_str(command.usage);
+            }
+            let action = if command_runs_directly(command.name) {
+                CommandPaletteAction::ExecuteCommand {
+                    command: format!("/{}", command.name),
+                }
+            } else {
+                CommandPaletteAction::InsertText {
+                    text: command.palette_command(),
+                }
+            };
+            entries.push(CommandPaletteEntry {
+                section: PaletteSection::Command,
+                label: format!("/{}", command.name),
+                description,
+                command: command.palette_command(),
+                action,
+            });
         }
-        let action = if command_runs_directly(command.name) {
-            CommandPaletteAction::ExecuteCommand {
-                command: format!("/{}", command.name),
+
+        for command in user_registry.iter().filter(|command| !command.hidden) {
+            let mut description = command
+                .description
+                .clone()
+                .unwrap_or_else(|| "User-defined command".to_string());
+            if let Some(hint) = &command.argument_hint
+                && !hint.trim().is_empty()
+            {
+                description.push_str("  ");
+                description.push_str(hint.trim());
             }
-        } else {
-            CommandPaletteAction::InsertText {
-                text: command.palette_command(),
-            }
-        };
-        entries.push(CommandPaletteEntry {
-            section: PaletteSection::Command,
-            label: format!("/{}", command.name),
-            description,
-            command: command.palette_command(),
-            action,
-        });
-    }
+            let slash_command = format!("/{}", command.name);
+            let action = if command.argument_hint.is_some() {
+                CommandPaletteAction::InsertText {
+                    text: format!("{slash_command} "),
+                }
+            } else {
+                CommandPaletteAction::ExecuteCommand {
+                    command: slash_command.clone(),
+                }
+            };
+            entries.push(CommandPaletteEntry {
+                section: PaletteSection::Command,
+                label: slash_command.clone(),
+                description,
+                command: slash_command,
+                action,
+            });
+        }
+    });
 
     let skills = skills::discover_for_workspace_and_dir(workspace, skills_dir);
     for skill in skills.list() {
@@ -167,6 +202,28 @@ pub fn build_entries(
     entries.sort_by(|a, b| a.label.cmp(&b.label));
     entries.sort_by_key(|entry| entry.section);
     entries
+}
+
+fn palette_description_for_unshadowed_aliases(
+    command: &commands::CommandInfo,
+    locale: Locale,
+    user_registry: &commands::user_registry::UserCommandRegistry,
+) -> String {
+    let desc = command.description_for(locale);
+    let aliases = command
+        .aliases
+        .iter()
+        .copied()
+        .filter(|alias| user_registry.get(alias).is_none())
+        .collect::<Vec<_>>();
+    if aliases.len() == command.aliases.len() {
+        return command.palette_description_for(locale);
+    }
+    if aliases.is_empty() {
+        desc.to_string()
+    } else {
+        format!("{}  aliases: {}", desc, aliases.join(", "))
+    }
 }
 
 fn build_mcp_entries(
@@ -1147,6 +1204,105 @@ mod tests {
     }
 
     #[test]
+    fn command_palette_includes_workspace_user_commands() {
+        let tmp = TempDir::new().expect("tempdir");
+        let workspace = tmp.path().join("workspace");
+        let commands_dir = workspace.join(".codewhale").join("commands");
+        std::fs::create_dir_all(&commands_dir).expect("create commands dir");
+        std::fs::write(
+            commands_dir.join("review.md"),
+            "---\ndescription: Review with context\nargument-hint: <path>\n---\nReview $ARGUMENTS",
+        )
+        .expect("write user command");
+
+        let entries = build_entries(
+            Locale::En,
+            tmp.path().join("skills").as_path(),
+            workspace.as_path(),
+            tmp.path().join("mcp.json").as_path(),
+            None,
+        );
+        let user_entry = entries
+            .iter()
+            .find(|entry| entry.section == PaletteSection::Command && entry.label == "/review")
+            .expect("user command should appear in command palette");
+
+        assert!(user_entry.description.contains("Review with context"));
+        assert!(user_entry.description.contains("<path>"));
+        assert!(matches!(
+            &user_entry.action,
+            CommandPaletteAction::InsertText { text } if text == "/review "
+        ));
+    }
+
+    #[test]
+    fn command_palette_excludes_hidden_user_commands() {
+        let tmp = TempDir::new().expect("tempdir");
+        let workspace = tmp.path().join("workspace");
+        let commands_dir = workspace.join(".codewhale").join("commands");
+        std::fs::create_dir_all(&commands_dir).expect("create commands dir");
+        std::fs::write(
+            commands_dir.join("secret.md"),
+            "---\ndescription: Internal workflow\nhidden: true\n---\nsecret",
+        )
+        .expect("write hidden user command");
+
+        let entries = build_entries(
+            Locale::En,
+            tmp.path().join("skills").as_path(),
+            workspace.as_path(),
+            tmp.path().join("mcp.json").as_path(),
+            None,
+        );
+
+        assert!(
+            !entries
+                .iter()
+                .any(|entry| entry.section == PaletteSection::Command && entry.label == "/secret")
+        );
+    }
+
+    #[test]
+    fn command_palette_filters_shadowed_builtin_aliases_from_description() {
+        let tmp = TempDir::new().expect("tempdir");
+        let workspace = tmp.path().join("workspace");
+        let commands_dir = workspace.join(".codewhale").join("commands");
+        std::fs::create_dir_all(&commands_dir).expect("create commands dir");
+        std::fs::write(
+            commands_dir.join("image-review.md"),
+            "---\ndescription: Review an image\nalias: image\n---\nreview image",
+        )
+        .expect("write user command");
+
+        let entries = build_entries(
+            Locale::En,
+            tmp.path().join("skills").as_path(),
+            workspace.as_path(),
+            tmp.path().join("mcp.json").as_path(),
+            None,
+        );
+        let attach = entries
+            .iter()
+            .find(|entry| entry.section == PaletteSection::Command && entry.label == "/attach")
+            .expect("built-in canonical command should remain visible");
+
+        assert!(
+            !attach.description.contains("aliases: image")
+                && !attach.description.contains(", image")
+                && !attach.description.contains("image,"),
+            "shadowed /image alias must not be advertised by /attach: {}",
+            attach.description
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.section == PaletteSection::Command
+                    && entry.label == "/image-review"),
+            "user command that owns the /image alias should be visible"
+        );
+    }
+
+    #[test]
     fn command_palette_has_one_entry_for_every_registered_command() {
         let tmp = TempDir::new().expect("tempdir");
         let skills_dir = tmp.path().join("skills");
@@ -1163,9 +1319,24 @@ mod tests {
             .iter()
             .filter(|entry| entry.section == PaletteSection::Command)
             .collect::<Vec<_>>();
-        assert_eq!(command_entries.len(), commands::command_infos().len());
+        let user_registry = commands::user_registry::registry_for_workspace(Some(tmp.path()));
+        let visible_user_commands = user_registry
+            .iter()
+            .filter(|command| !command.hidden)
+            .count();
+        let shadowed_builtins = commands::command_infos()
+            .iter()
+            .filter(|command| user_registry.get(command.name).is_some())
+            .count();
+        assert_eq!(
+            command_entries.len(),
+            commands::command_infos().len() - shadowed_builtins + visible_user_commands
+        );
 
         for command in commands::command_infos() {
+            if user_registry.get(command.name).is_some() {
+                continue;
+            }
             let label = format!("/{}", command.name);
             let matching = command_entries
                 .iter()

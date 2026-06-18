@@ -19,12 +19,22 @@
 //! 4. `<workspace>/.cursor/commands/`    (Cursor interop)
 //! 5. `~/.codewhale/commands/`           (user-global)
 //! 6. `~/.deepseek/commands/`            (legacy user-global)
+//!
+//! ## Permanent Role
+//!
+//! This module is the lower-level scanning, frontmatter parsing, and template
+//! layer for [`super::user_registry::UserCommandRegistry`]. Runtime dispatch
+//! lives in `user_registry.rs`; this file remains as the shared file I/O and
+//! parsing boundary documented in `docs/architecture/command-dispatch.md`.
 
+#[cfg(test)]
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+#[cfg(test)]
 use crate::tui::app::{App, AppAction, HuntVerdict};
 
+#[cfg(test)]
 use super::CommandResult;
 
 /// Path to the global user commands directory: `~/.codewhale/commands/`.
@@ -39,7 +49,7 @@ fn legacy_global_commands_dir() -> PathBuf {
 }
 
 /// Return all candidate commands directories in precedence order.
-fn commands_dirs(workspace: Option<&Path>) -> Vec<PathBuf> {
+pub(crate) fn commands_dirs(workspace: Option<&Path>) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     if let Some(ws) = workspace {
         dirs.push(ws.join(".codewhale").join("commands"));
@@ -54,7 +64,7 @@ fn commands_dirs(workspace: Option<&Path>) -> Vec<PathBuf> {
 
 /// Scan a single commands directory for `.md` files and return
 /// `(name, content)` pairs. Errors are silently skipped.
-fn load_commands_from_dir(dir: &Path) -> Vec<(String, String)> {
+pub(crate) fn load_commands_from_dir(dir: &Path) -> Vec<(String, String)> {
     let mut commands: Vec<(String, String)> = Vec::new();
 
     if !dir.is_dir() {
@@ -91,6 +101,7 @@ fn load_commands_from_dir(dir: &Path) -> Vec<(String, String)> {
 ///
 /// Pass `None` for the workspace to scan only the global directory
 /// (backward-compatible with callers that don't have workspace context).
+#[cfg(test)]
 pub fn load_user_commands(workspace: Option<&Path>) -> Vec<(String, String)> {
     let mut seen: HashSet<String> = HashSet::new();
     let mut commands: Vec<(String, String)> = Vec::new();
@@ -162,7 +173,7 @@ fn strip_matched_quotes(value: &str) -> &str {
     value
 }
 
-fn parse_allowed_tools(value: &str) -> Vec<String> {
+pub(crate) fn parse_allowed_tools(value: &str) -> Vec<String> {
     value
         .split(',')
         .map(|tool| {
@@ -181,7 +192,7 @@ fn parse_allowed_tools(value: &str) -> Vec<String> {
 /// prefix (e.g. `/mycmd` or `/mycmd with args`). Only exact matches
 /// on the command name are considered (no partial/alias matching).
 /// Substitute $1, $2, $ARGUMENTS placeholders in a command template.
-fn apply_template(template: &str, args: &str) -> String {
+pub(crate) fn apply_template(template: &str, args: &str) -> String {
     let positional: Vec<&str> = args.split_whitespace().collect();
     let mut result = template.replace("$ARGUMENTS", args);
     for (i, arg) in positional.iter().enumerate() {
@@ -190,6 +201,7 @@ fn apply_template(template: &str, args: &str) -> String {
     result
 }
 
+#[cfg(test)]
 pub fn try_dispatch_user_command(app: &mut App, input: &str) -> Option<CommandResult> {
     let parts: Vec<&str> = input.trim().splitn(2, ' ').collect();
     let command = parts[0].to_lowercase();
