@@ -2337,7 +2337,9 @@ async fn run_event_loop(
                             });
                             if app.view_stack.top_kind() != Some(ModalKind::PlanPrompt) {
                                 let plan = Some(app.plan_state.lock().await.snapshot());
-                                app.view_stack.push(PlanPromptView::new(plan));
+                                let todos = Some(app.todos.lock().await.snapshot());
+                                app.view_stack
+                                    .push(PlanPromptView::new(plan).with_todos(todos));
                             }
                         }
                         app.plan_tool_used_in_turn = false;

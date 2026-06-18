@@ -1693,8 +1693,8 @@ pub struct App {
     pub plan_prompt_pending: bool,
     /// Whether update_plan was called during the current turn
     pub plan_tool_used_in_turn: bool,
-    /// Todo list for `TodoWriteTool`
-    #[allow(dead_code)] // For future engine integration
+    /// Todo list for `TodoWriteTool`. Read by the plan confirmation modal to
+    /// show the active checklist alongside the plan.
     pub todos: SharedTodoList,
     /// Durable runtime services exposed to model-visible task/automation tools.
     pub runtime_services: RuntimeToolServices,
