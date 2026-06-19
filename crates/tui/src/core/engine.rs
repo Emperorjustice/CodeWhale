@@ -297,6 +297,10 @@ pub struct EngineConfig {
     /// `SubAgentRuntime::max_spawn_depth`. Override via
     /// `[subagents] max_depth = N` in `~/.codewhale/config.toml`.
     pub max_spawn_depth: u32,
+    /// Optional aggregate token budget for each root sub-agent run.
+    /// Descendant agents inherit the root pool unless a child starts a new
+    /// budget scope with an explicit per-call override.
+    pub subagent_token_budget: Option<u64>,
     /// Per-domain network policy decider (#135). Shared across the session so
     /// session-scoped approvals (`/network allow <host>`) persist for the
     /// remainder of the run.
@@ -413,6 +417,7 @@ impl Default for EngineConfig {
             plan_state: new_shared_plan_state(),
             goal_state: new_shared_goal_state(),
             max_spawn_depth: crate::tools::subagent::DEFAULT_MAX_SPAWN_DEPTH,
+            subagent_token_budget: None,
             network_policy: None,
             snapshots_enabled: true,
             snapshots_max_workspace_bytes:
@@ -829,6 +834,7 @@ impl Engine {
             config.max_subagents,
             config.subagent_heartbeat_timeout,
             config.launch_concurrency,
+            config.subagent_token_budget,
         );
         let shell_manager = config
             .runtime_services
@@ -1476,6 +1482,7 @@ impl Engine {
                                 self.config.max_subagents,
                                 self.config.subagent_heartbeat_timeout,
                                 self.config.launch_concurrency,
+                                self.config.subagent_token_budget,
                             )
                         };
                         let launch_note = if launch_gate_applied {

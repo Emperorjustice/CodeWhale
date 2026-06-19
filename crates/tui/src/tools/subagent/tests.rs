@@ -154,6 +154,113 @@ fn headless_worker_record_tracks_lifecycle_without_tui_projection() {
 }
 
 #[test]
+fn worker_record_usage_accumulates_provider_tokens() {
+    let tmp = tempdir().expect("tempdir");
+    let mut manager = SubAgentManager::new(tmp.path().to_path_buf(), 4);
+    manager.register_worker(make_worker_spec("agent_usage", tmp.path().to_path_buf()));
+
+    manager.record_worker_usage(
+        "agent_usage",
+        &Usage {
+            input_tokens: 100,
+            output_tokens: 25,
+            prompt_cache_hit_tokens: Some(70),
+            prompt_cache_miss_tokens: Some(30),
+            ..Usage::default()
+        },
+    );
+    manager.record_worker_usage(
+        "agent_usage",
+        &Usage {
+            input_tokens: 40,
+            output_tokens: 10,
+            ..Usage::default()
+        },
+    );
+
+    let record = manager
+        .get_worker_record("agent_usage")
+        .expect("worker record");
+    assert_eq!(record.usage.status, "reported");
+    assert_eq!(record.usage.input_tokens, Some(140));
+    assert_eq!(record.usage.output_tokens, Some(35));
+    assert_eq!(record.usage.total_tokens, Some(175));
+    assert_eq!(record.usage.token_budget, None);
+    assert!(
+        record.usage.note.contains("175 tokens"),
+        "usage note includes reported total: {}",
+        record.usage.note
+    );
+}
+
+#[test]
+fn token_budget_scope_is_shared_across_nested_workers_and_blocks_when_spent() {
+    let tmp = tempdir().expect("tempdir");
+    let workspace = tmp.path().to_path_buf();
+    let mut manager =
+        SubAgentManager::new(workspace.clone(), 4).with_default_token_budget(Some(100));
+
+    manager.register_worker(make_worker_spec("agent_root", workspace.clone()));
+    let root_scope = manager
+        .resolve_spawn_budget_scope("agent_root", None, None)
+        .expect("root budget resolves")
+        .expect("root budget present");
+    manager.attach_budget_scope("agent_root", root_scope);
+    manager.record_worker_usage(
+        "agent_root",
+        &Usage {
+            input_tokens: 40,
+            output_tokens: 10,
+            ..Usage::default()
+        },
+    );
+
+    let mut child_spec = make_worker_spec("agent_child", workspace);
+    child_spec.parent_run_id = Some("agent_root".to_string());
+    let child_scope = manager
+        .resolve_spawn_budget_scope("agent_child", Some("agent_root"), None)
+        .expect("child inherits budget")
+        .expect("child budget present");
+    assert_eq!(child_scope.scope_id, "agent_root");
+    assert_eq!(child_scope.limit, 100);
+    assert_eq!(child_scope.spent, 50);
+    manager.register_worker(child_spec);
+    manager.attach_budget_scope("agent_child", child_scope);
+    manager.record_worker_usage(
+        "agent_child",
+        &Usage {
+            input_tokens: 30,
+            output_tokens: 20,
+            ..Usage::default()
+        },
+    );
+
+    let root = manager.get_worker_record("agent_root").expect("root");
+    let child = manager.get_worker_record("agent_child").expect("child");
+    assert_eq!(root.usage.budget_spent_tokens, Some(100));
+    assert_eq!(child.usage.budget_spent_tokens, Some(100));
+    assert_eq!(root.usage.budget_remaining_tokens, Some(0));
+    assert_eq!(child.usage.budget_remaining_tokens, Some(0));
+    assert_eq!(root.usage.status, "budget_exhausted");
+
+    let err = manager
+        .resolve_spawn_budget_scope("agent_grandchild", Some("agent_child"), None)
+        .expect_err("spent shared budget blocks further child spawn");
+    assert!(
+        err.to_string().contains("token budget exhausted"),
+        "actionable exhaustion error: {err}"
+    );
+
+    let override_scope = manager
+        .resolve_spawn_budget_scope("agent_override", Some("agent_child"), Some(20))
+        .expect("explicit override starts new scope")
+        .expect("override budget present");
+    assert_eq!(override_scope.scope_id, "agent_override");
+    assert_eq!(override_scope.limit, 20);
+    assert_eq!(override_scope.spent, 0);
+}
+
+#[test]
 fn agent_worker_profile_derives_from_parent_without_escalation() {
     let mut runtime = stub_runtime();
     runtime.worker_profile = WorkerRuntimeProfile::for_role(SubAgentType::Explore);
@@ -967,6 +1074,33 @@ fn test_delegate_defaults_to_fork_context() {
     );
     let parsed = parse_spawn_request(&input).expect("delegate override should parse");
     assert!(!parsed.fork_context);
+}
+
+#[test]
+fn spawn_request_parses_token_budget_override() {
+    let parsed = parse_spawn_request(&json!({
+        "prompt": "fan out safely",
+        "token_budget": 12_345
+    }))
+    .expect("token budget parses");
+    assert_eq!(parsed.token_budget, Some(12_345));
+
+    let parsed = parse_spawn_request(&json!({
+        "prompt": "fleet-shaped alias",
+        "max_tokens": 4_000
+    }))
+    .expect("max_tokens alias parses");
+    assert_eq!(parsed.token_budget, Some(4_000));
+
+    let err = parse_spawn_request(&json!({
+        "prompt": "bad budget",
+        "token_budget": 0
+    }))
+    .expect_err("zero budget is invalid in tool input");
+    assert!(
+        err.to_string().contains("must be greater than zero"),
+        "clear token budget error: {err}"
+    );
 }
 
 #[test]

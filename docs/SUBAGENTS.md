@@ -199,6 +199,21 @@ cancelled records persist for inspection but don't occupy a slot.
 Agents that lost their `task_handle` (e.g. across a process
 restart) also don't count against the cap.
 
+## Token budget governor
+
+Set `[subagents].token_budget` to give each root `agent` run an aggregate
+token ceiling shared by that child and all of its descendants. A child can also
+start a new scoped budget with the model-facing `agent` tool's
+`token_budget` field (the `max_tokens` alias is accepted for Workflow-shaped
+callers). When no budget is configured or supplied, behavior is unchanged.
+
+Provider-reported input and output tokens are folded into the worker record as
+each child model call completes. The persisted `usage` object shows the
+worker's own totals plus aggregate `budget_spent_tokens` and
+`budget_remaining_tokens` for the shared scope. Once the shared scope is
+exhausted, further descendant spawns are rejected with an actionable message
+instead of opening more agents into a spent pool.
+
 ## Per-role models (#3018)
 
 Children can run on a different model than the parent. Two config surfaces
@@ -325,8 +340,9 @@ child's assignment no longer fits.
 Artifacts are symbolic refs. Use `handle_read` on the returned
 `transcript_handle` for transcript details, and treat `result_summary` as a
 child self-report unless `verification.status` points to a separate gate or
-receipt. `usage.status` is `unknown` until sub-agent token accounting is wired
-into the worker ledger.
+receipt. `usage.status` is `unknown` until provider usage is reported; then it
+switches to `reported`, or `budget_exhausted` when a configured shared token
+budget has no remaining tokens.
 
 ## Output contract
 

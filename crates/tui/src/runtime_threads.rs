@@ -2414,6 +2414,7 @@ impl RuntimeThreadManager {
             plan_state: new_shared_plan_state(),
             goal_state: crate::tools::goal::new_shared_goal_state(),
             max_spawn_depth: self.config.subagent_max_spawn_depth(),
+            subagent_token_budget: self.config.subagent_token_budget(),
             network_policy,
             snapshots_enabled: self.config.snapshots_config().enabled,
             snapshots_max_workspace_bytes: self

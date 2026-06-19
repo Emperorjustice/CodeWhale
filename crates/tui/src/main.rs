@@ -6346,6 +6346,7 @@ async fn run_exec_agent(
         plan_state: new_shared_plan_state(),
         goal_state: crate::tools::goal::new_shared_goal_state(),
         max_spawn_depth: execution_config.subagent_max_spawn_depth(),
+        subagent_token_budget: execution_config.subagent_token_budget(),
         network_policy,
         snapshots_enabled: execution_config.snapshots_config().enabled,
         snapshots_max_workspace_bytes: execution_config

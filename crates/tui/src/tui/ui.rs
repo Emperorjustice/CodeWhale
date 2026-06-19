@@ -1099,6 +1099,7 @@ fn build_engine_config(app: &App, config: &Config) -> EngineConfig {
             app.hunt.verdict.goal_status(),
         ),
         max_spawn_depth: config.subagent_max_spawn_depth(),
+        subagent_token_budget: config.subagent_token_budget(),
         allowed_tools: app.active_allowed_tools.clone(),
         disallowed_tools: None,
         hook_executor: app.runtime_services.hook_executor.clone(),

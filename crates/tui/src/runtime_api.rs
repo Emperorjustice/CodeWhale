@@ -4593,7 +4593,13 @@ mod tests {
             }],
             usage: AgentRunUsage {
                 status: "unknown".to_string(),
+                input_tokens: None,
+                output_tokens: None,
                 total_tokens: None,
+                token_budget: None,
+                budget_spent_tokens: None,
+                budget_remaining_tokens: None,
+                budget_scope: None,
                 note: "not reported".to_string(),
             },
             verification: AgentRunVerificationSummary {

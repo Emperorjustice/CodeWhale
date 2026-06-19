@@ -1800,6 +1800,11 @@ pub struct SubagentsConfig {
     /// throttle); explicit values are clamped to [1, max_subagents].
     #[serde(default)]
     pub launch_concurrency: Option<usize>,
+    /// Optional aggregate token budget shared by a root `agent` run and its
+    /// descendants. When unset or 0, sub-agents keep legacy unlimited spend
+    /// behavior unless an individual `agent` call supplies a per-run override.
+    #[serde(default)]
+    pub token_budget: Option<u64>,
     /// Deprecated pre-v0.8.61 alias for `launch_concurrency`. Honored only
     /// when `launch_concurrency` is unset, so the new key always wins.
     #[serde(default, rename = "interactive_max_launch")]
@@ -3234,6 +3239,18 @@ impl Config {
             .and_then(|cfg| cfg.launch_concurrency.or(cfg.interactive_max_launch_legacy))
             .unwrap_or(max)
             .clamp(1, max)
+    }
+
+    /// Optional aggregate token budget for each root `agent` run.
+    ///
+    /// Reads `[subagents] token_budget`. `None` and `0` both mean unlimited,
+    /// preserving legacy behavior until a budget is explicitly configured.
+    #[must_use]
+    pub fn subagent_token_budget(&self) -> Option<u64> {
+        self.subagents
+            .as_ref()
+            .and_then(|cfg| cfg.token_budget)
+            .filter(|budget| *budget > 0)
     }
 
     /// Resolved per-step DeepSeek API timeout for sub-agents, in seconds.
@@ -7381,6 +7398,29 @@ action = "session.compact"
             ..Config::default()
         };
         assert_eq!(config.launch_concurrency(), 3);
+    }
+
+    #[test]
+    fn subagent_token_budget_is_optional_and_zero_disables() {
+        assert_eq!(Config::default().subagent_token_budget(), None);
+
+        let disabled = Config {
+            subagents: Some(SubagentsConfig {
+                token_budget: Some(0),
+                ..SubagentsConfig::default()
+            }),
+            ..Config::default()
+        };
+        assert_eq!(disabled.subagent_token_budget(), None);
+
+        let configured = Config {
+            subagents: Some(SubagentsConfig {
+                token_budget: Some(50_000),
+                ..SubagentsConfig::default()
+            }),
+            ..Config::default()
+        };
+        assert_eq!(configured.subagent_token_budget(), Some(50_000));
     }
 
     #[test]

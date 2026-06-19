@@ -29,7 +29,9 @@ use crate::config::MAX_SUBAGENTS;
 use crate::core::events::Event;
 use crate::dependencies::{ExternalTool, Git};
 use crate::llm_client::LlmClient;
-use crate::models::{ContentBlock, Message, MessageRequest, MessageResponse, SystemPrompt, Tool};
+use crate::models::{
+    ContentBlock, Message, MessageRequest, MessageResponse, SystemPrompt, Tool, Usage,
+};
 use crate::request_tuning::RequestTuning;
 use crate::tools::handle::VarHandle;
 use crate::tools::plan::{PlanState, SharedPlanState};
@@ -74,6 +76,7 @@ fn release_resident_leases_for(agent_id: &str) {
 /// the `SubAgentManager`.
 const DEFAULT_MAX_STEPS: u32 = u32::MAX;
 const TOOL_TIMEOUT: Duration = Duration::from_secs(30);
+const MIN_SUBAGENT_SPAWN_TOKEN_RESERVE: u64 = 1;
 
 /// Format a step counter for sub-agent progress messages.
 ///
@@ -754,7 +757,19 @@ pub struct AgentRunArtifactRef {
 pub struct AgentRunUsage {
     pub status: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub total_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_budget: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget_spent_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget_remaining_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget_scope: Option<String>,
     pub note: String,
 }
 
@@ -894,8 +909,51 @@ fn default_agent_run_takeover() -> AgentRunTakeoverTarget {
 fn default_agent_run_usage() -> AgentRunUsage {
     AgentRunUsage {
         status: "unknown".to_string(),
+        input_tokens: None,
+        output_tokens: None,
         total_tokens: None,
+        token_budget: None,
+        budget_spent_tokens: None,
+        budget_remaining_tokens: None,
+        budget_scope: None,
         note: "Token usage is not yet reported by the sub-agent worker ledger.".to_string(),
+    }
+}
+
+fn positive_token_budget(budget: Option<u64>) -> Option<u64> {
+    budget.filter(|value| *value > 0)
+}
+
+fn usage_total_tokens(usage: &Usage) -> u64 {
+    u64::from(usage.input_tokens).saturating_add(u64::from(usage.output_tokens))
+}
+
+fn refresh_usage_note(usage: &mut AgentRunUsage) {
+    let worker_total = usage.total_tokens.unwrap_or(0);
+    if let Some(limit) = usage.token_budget {
+        let spent = usage.budget_spent_tokens.unwrap_or(worker_total);
+        let remaining = usage
+            .budget_remaining_tokens
+            .unwrap_or_else(|| limit.saturating_sub(spent));
+        usage.status = if remaining == 0 {
+            "budget_exhausted".to_string()
+        } else if worker_total > 0 {
+            "reported".to_string()
+        } else {
+            "tracking".to_string()
+        };
+        usage.note = if worker_total > 0 {
+            format!(
+                "Token budget: {spent}/{limit} spent, {remaining} remaining. This worker reported {worker_total} tokens."
+            )
+        } else {
+            format!("Token budget: {spent}/{limit} spent, {remaining} remaining.")
+        };
+    } else if worker_total > 0 {
+        usage.status = "reported".to_string();
+        usage.note = format!("Provider reported {worker_total} tokens for this worker.");
+    } else if usage.status.is_empty() {
+        *usage = default_agent_run_usage();
     }
 }
 
@@ -1124,6 +1182,8 @@ fn normalize_worker_record(mut record: AgentWorkerRecord) -> AgentWorkerRecord {
     }
     if record.usage.status.is_empty() {
         record.usage = default_agent_run_usage();
+    } else {
+        refresh_usage_note(&mut record.usage);
     }
     if record.verification.status.is_empty() {
         record.verification = default_agent_run_verification();
@@ -1165,6 +1225,7 @@ pub(crate) struct SubAgentSpawnOptions {
     pub model_route: Option<ModelRoute>,
     pub nickname: Option<String>,
     pub fork_context: bool,
+    pub token_budget: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1252,6 +1313,18 @@ struct SpawnRequest {
     /// Legacy recursion budget for descendants. The model-facing child tool
     /// surface is leaf-only; this remains for persisted/internal records.
     max_depth: Option<u32>,
+    /// Optional aggregate token budget for this child and its descendants.
+    /// When unset, the child inherits the parent's budget pool or the
+    /// configured root default.
+    token_budget: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AgentUsageBudgetScope {
+    scope_id: String,
+    limit: u64,
+    spent: u64,
+    remaining: u64,
 }
 
 /// Durable recovery point for an interrupted sub-agent session.
@@ -1759,6 +1832,7 @@ pub struct SubAgentManager {
     state_path: Option<PathBuf>,
     max_steps: u32,
     max_agents: usize,
+    default_token_budget: Option<u64>,
     running_heartbeat_timeout: Duration,
     /// Stable id assigned at manager construction (#405). Stamped on
     /// every agent the manager spawns; agents loaded from the
@@ -1795,6 +1869,7 @@ impl SubAgentManager {
             state_path: None,
             max_steps: DEFAULT_MAX_STEPS,
             max_agents,
+            default_token_budget: None,
             running_heartbeat_timeout: Duration::from_secs(
                 crate::config::DEFAULT_SUBAGENT_HEARTBEAT_TIMEOUT_SECS,
             ),
@@ -1814,6 +1889,14 @@ impl SubAgentManager {
     #[must_use]
     pub fn with_launch_concurrency(mut self, limit: usize) -> Self {
         self.launch_gate = Arc::new(Semaphore::new(limit.clamp(1, self.max_agents)));
+        self
+    }
+
+    /// Set the default aggregate token budget for root sub-agent runs.
+    /// `None` and `Some(0)` both preserve unlimited legacy behavior.
+    #[must_use]
+    pub fn with_default_token_budget(mut self, budget: Option<u64>) -> Self {
+        self.default_token_budget = positive_token_budget(budget);
         self
     }
 
@@ -1856,8 +1939,10 @@ impl SubAgentManager {
         max_agents: usize,
         running_heartbeat_timeout: Duration,
         launch_concurrency: usize,
+        default_token_budget: Option<u64>,
     ) -> bool {
         self.max_agents = max_agents.clamp(1, crate::config::MAX_SUBAGENTS);
+        self.default_token_budget = positive_token_budget(default_token_budget);
         self.running_heartbeat_timeout = if running_heartbeat_timeout.is_zero() {
             Duration::from_secs(crate::config::DEFAULT_SUBAGENT_HEARTBEAT_TIMEOUT_SECS)
         } else {
@@ -2048,6 +2133,7 @@ impl SubAgentManager {
             self.worker_records
                 .insert(worker.spec.worker_id.clone(), worker);
         }
+        self.refresh_all_budget_scopes();
         self.prune_worker_records();
 
         Ok(())
@@ -2099,6 +2185,139 @@ impl SubAgentManager {
 
     pub fn get_worker_record(&self, worker_id: &str) -> Option<AgentWorkerRecord> {
         self.worker_records.get(worker_id).cloned()
+    }
+
+    fn aggregate_budget_spent(&self, scope_id: &str) -> u64 {
+        self.worker_records
+            .values()
+            .filter(|record| record.usage.budget_scope.as_deref() == Some(scope_id))
+            .fold(0_u64, |total, record| {
+                total.saturating_add(record.usage.total_tokens.unwrap_or(0))
+            })
+    }
+
+    fn inherited_budget_scope(&self, parent_run_id: Option<&str>) -> Option<(String, u64)> {
+        let parent = self.worker_records.get(parent_run_id?)?;
+        let limit = parent.usage.token_budget?;
+        let scope_id = parent
+            .usage
+            .budget_scope
+            .clone()
+            .unwrap_or_else(|| parent.spec.worker_id.clone());
+        Some((scope_id, limit))
+    }
+
+    fn resolve_spawn_budget_scope(
+        &self,
+        worker_id: &str,
+        parent_run_id: Option<&str>,
+        requested_budget: Option<u64>,
+    ) -> Result<Option<AgentUsageBudgetScope>> {
+        let scope = if let Some(limit) = positive_token_budget(requested_budget) {
+            Some((worker_id.to_string(), limit))
+        } else if let Some(parent_scope) = self.inherited_budget_scope(parent_run_id) {
+            Some(parent_scope)
+        } else {
+            self.default_token_budget
+                .map(|limit| (worker_id.to_string(), limit))
+        };
+
+        let Some((scope_id, limit)) = scope else {
+            return Ok(None);
+        };
+        let spent = self.aggregate_budget_spent(&scope_id);
+        let remaining = limit.saturating_sub(spent);
+        if remaining < MIN_SUBAGENT_SPAWN_TOKEN_RESERVE {
+            return Err(anyhow!(
+                "Sub-agent token budget exhausted for scope {scope_id}: {spent}/{limit} tokens spent, {remaining} remaining. Wait for the parent/Workflow to summarize results or start a new agent run with an explicit token_budget override."
+            ));
+        }
+        Ok(Some(AgentUsageBudgetScope {
+            scope_id,
+            limit,
+            spent,
+            remaining,
+        }))
+    }
+
+    fn attach_budget_scope(&mut self, worker_id: &str, scope: AgentUsageBudgetScope) {
+        let Some(record) = self.worker_records.get_mut(worker_id) else {
+            return;
+        };
+        record.usage.token_budget = Some(scope.limit);
+        record.usage.budget_scope = Some(scope.scope_id.clone());
+        record.usage.budget_spent_tokens = Some(scope.spent);
+        record.usage.budget_remaining_tokens = Some(scope.remaining);
+        refresh_usage_note(&mut record.usage);
+        self.refresh_budget_scope(&scope.scope_id);
+    }
+
+    fn refresh_budget_scope(&mut self, scope_id: &str) {
+        let Some(limit) = self
+            .worker_records
+            .values()
+            .find(|record| record.usage.budget_scope.as_deref() == Some(scope_id))
+            .and_then(|record| record.usage.token_budget)
+        else {
+            return;
+        };
+        let spent = self.aggregate_budget_spent(scope_id);
+        let remaining = limit.saturating_sub(spent);
+        for record in self.worker_records.values_mut() {
+            if record.usage.budget_scope.as_deref() == Some(scope_id) {
+                record.usage.token_budget = Some(limit);
+                record.usage.budget_spent_tokens = Some(spent);
+                record.usage.budget_remaining_tokens = Some(remaining);
+                refresh_usage_note(&mut record.usage);
+            }
+        }
+    }
+
+    fn refresh_all_budget_scopes(&mut self) {
+        let scope_ids = self
+            .worker_records
+            .values()
+            .filter_map(|record| record.usage.budget_scope.clone())
+            .collect::<std::collections::HashSet<_>>();
+        for scope_id in scope_ids {
+            self.refresh_budget_scope(&scope_id);
+        }
+    }
+
+    fn record_worker_usage(&mut self, worker_id: &str, usage: &Usage) {
+        let now_ms = epoch_millis_now();
+        let total_delta = usage_total_tokens(usage);
+        let Some(record) = self.worker_records.get_mut(worker_id) else {
+            return;
+        };
+        record.updated_at_ms = now_ms;
+        record.usage.input_tokens = Some(
+            record
+                .usage
+                .input_tokens
+                .unwrap_or(0)
+                .saturating_add(u64::from(usage.input_tokens)),
+        );
+        record.usage.output_tokens = Some(
+            record
+                .usage
+                .output_tokens
+                .unwrap_or(0)
+                .saturating_add(u64::from(usage.output_tokens)),
+        );
+        record.usage.total_tokens = Some(
+            record
+                .usage
+                .total_tokens
+                .unwrap_or(0)
+                .saturating_add(total_delta),
+        );
+        let scope_id = record.usage.budget_scope.clone();
+        refresh_usage_note(&mut record.usage);
+        if let Some(scope_id) = scope_id {
+            self.refresh_budget_scope(&scope_id);
+        }
+        self.persist_state_debounced();
     }
 
     fn push_worker_event(
@@ -2334,6 +2553,11 @@ impl SubAgentManager {
         }
         let effective_model = runtime.model.clone();
         let agent_id = format!("agent_{}", &Uuid::new_v4().to_string()[..8]);
+        let budget_scope = self.resolve_spawn_budget_scope(
+            &agent_id,
+            runtime.parent_agent_id.as_deref(),
+            options.token_budget,
+        )?;
         let active_names: std::collections::HashSet<String> = self
             .agents
             .values()
@@ -2428,6 +2652,9 @@ impl SubAgentManager {
             max_spawn_depth: runtime.max_spawn_depth,
         };
         self.register_worker(worker_spec);
+        if let Some(scope) = budget_scope {
+            self.attach_budget_scope(&agent_id, scope);
+        }
 
         if let Some(event_tx) = runtime.event_tx.clone() {
             let _ = event_tx.try_send(Event::AgentSpawned {
@@ -2998,6 +3225,7 @@ pub fn new_shared_subagent_manager(workspace: PathBuf, max_agents: usize) -> Sha
         max_agents,
         Duration::from_secs(crate::config::DEFAULT_SUBAGENT_HEARTBEAT_TIMEOUT_SECS),
         max_agents,
+        None,
     )
 }
 
@@ -3009,12 +3237,14 @@ pub fn new_shared_subagent_manager_with_timeout(
     max_agents: usize,
     running_heartbeat_timeout: Duration,
     launch_concurrency: usize,
+    default_token_budget: Option<u64>,
 ) -> SharedSubAgentManager {
     let max_agents = max_agents.clamp(1, MAX_SUBAGENTS);
     let state_path = default_state_path(&workspace);
     let mut manager = SubAgentManager::new(workspace, max_agents)
         .with_running_heartbeat_timeout(running_heartbeat_timeout)
         .with_launch_concurrency(launch_concurrency)
+        .with_default_token_budget(default_token_budget)
         .with_state_path(state_path);
     if let Err(err) = manager.load_state() {
         // Routed through tracing instead of stderr — see comment in
@@ -3096,6 +3326,11 @@ impl ToolSpec for AgentTool {
                     "minimum": 0,
                     "maximum": 3,
                     "description": "Optional remaining nested-agent depth budget for this child. Defaults to the configured runtime budget."
+                },
+                "token_budget": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Optional aggregate token budget for this child and descendants. When unset, the child inherits the parent budget pool or the configured root default."
                 }
             },
             "required": ["prompt"]
@@ -3264,6 +3499,7 @@ async fn spawn_subagent_from_input(
                 model_route: Some(model_route),
                 nickname: None,
                 fork_context: spawn_request.fork_context,
+                token_budget: spawn_request.token_budget,
             },
         )
         .map_err(|e| ToolError::execution_failed(format!("Failed to spawn sub-agent: {e}")))?;
@@ -4135,6 +4371,10 @@ async fn run_subagent(
                 response.usage.clone(),
             ));
         }
+        {
+            let mut manager = runtime.manager.write().await;
+            manager.record_worker_usage(&agent_id, &response.usage);
+        }
 
         for block in &response.content {
             match block {
@@ -4629,6 +4869,8 @@ fn parse_spawn_request(input: &Value) -> Result<SpawnRequest, ToolError> {
                 })
         })
         .transpose()?;
+    let token_budget =
+        parse_optional_positive_u64(input, &["token_budget", "tokenBudget", "max_tokens"])?;
 
     Ok(SpawnRequest {
         session_name,
@@ -4643,6 +4885,7 @@ fn parse_spawn_request(input: &Value) -> Result<SpawnRequest, ToolError> {
         resident_file,
         fork_context,
         max_depth,
+        token_budget,
     })
 }
 
@@ -4672,6 +4915,26 @@ fn parse_optional_bool(input: &Value, names: &[&str]) -> Option<bool> {
         .iter()
         .find_map(|name| input.get(*name))
         .and_then(Value::as_bool)
+}
+
+fn parse_optional_positive_u64(input: &Value, names: &[&str]) -> Result<Option<u64>, ToolError> {
+    for name in names {
+        let Some(value) = input.get(*name) else {
+            continue;
+        };
+        let Some(parsed) = value.as_u64() else {
+            return Err(ToolError::invalid_input(format!(
+                "{name} must be a positive integer token count"
+            )));
+        };
+        if parsed == 0 {
+            return Err(ToolError::invalid_input(format!(
+                "{name} must be greater than zero; omit it to inherit or disable the budget"
+            )));
+        }
+        return Ok(Some(parsed));
+    }
+    Ok(None)
 }
 
 fn with_default_fork_context(mut input: Value, default: bool) -> Value {
