@@ -251,14 +251,10 @@ impl RuntimeThreadStore {
         let turns_dir = root.join("turns");
         let items_dir = root.join("items");
         let events_dir = root.join("events");
-        fs::create_dir_all(&threads_dir)
-            .with_context(|| format!("Failed to create {}", threads_dir.display()))?;
-        fs::create_dir_all(&turns_dir)
-            .with_context(|| format!("Failed to create {}", turns_dir.display()))?;
-        fs::create_dir_all(&items_dir)
-            .with_context(|| format!("Failed to create {}", items_dir.display()))?;
-        fs::create_dir_all(&events_dir)
-            .with_context(|| format!("Failed to create {}", events_dir.display()))?;
+        ensure_runtime_store_dir(&threads_dir)?;
+        ensure_runtime_store_dir(&turns_dir)?;
+        ensure_runtime_store_dir(&items_dir)?;
+        ensure_runtime_store_dir(&events_dir)?;
 
         let state_path = root.join("state.json");
         reject_symlinked_store_file(&state_path)?;
@@ -367,6 +363,7 @@ impl RuntimeThreadStore {
 
     pub fn list_threads(&self) -> Result<Vec<ThreadRecord>> {
         let mut out = Vec::new();
+        reject_symlinked_store_dir(&self.threads_dir)?;
         for entry in fs::read_dir(&self.threads_dir)
             .with_context(|| format!("Failed to read {}", self.threads_dir.display()))?
         {
@@ -395,6 +392,7 @@ impl RuntimeThreadStore {
     pub fn list_turns_for_thread(&self, thread_id: &str) -> Result<Vec<TurnRecord>> {
         validated_record_id(thread_id, "thread id")?;
         let mut out = Vec::new();
+        reject_symlinked_store_dir(&self.turns_dir)?;
         for entry in fs::read_dir(&self.turns_dir)
             .with_context(|| format!("Failed to read {}", self.turns_dir.display()))?
         {
@@ -425,6 +423,7 @@ impl RuntimeThreadStore {
     pub fn list_items_for_turn(&self, turn_id: &str) -> Result<Vec<TurnItemRecord>> {
         validated_record_id(turn_id, "turn id")?;
         let mut out = Vec::new();
+        reject_symlinked_store_dir(&self.items_dir)?;
         for entry in fs::read_dir(&self.items_dir)
             .with_context(|| format!("Failed to read {}", self.items_dir.display()))?
         {
@@ -466,6 +465,7 @@ impl RuntimeThreadStore {
 
         let wanted: HashSet<&str> = turn_ids.iter().map(String::as_str).collect();
         let mut out: HashMap<String, Vec<TurnItemRecord>> = HashMap::new();
+        reject_symlinked_store_dir(&self.items_dir)?;
         for entry in fs::read_dir(&self.items_dir)
             .with_context(|| format!("Failed to read {}", self.items_dir.display()))?
         {
@@ -512,6 +512,7 @@ impl RuntimeThreadStore {
             validated_record_id(item_id, "item id")?;
         }
         let path = self.events_path(thread_id)?;
+        reject_symlinked_store_dir(&self.events_dir)?;
         reject_symlinked_store_file(&path)?;
 
         let mut state = self.state.lock().await;
@@ -551,6 +552,7 @@ impl RuntimeThreadStore {
         since_seq: Option<u64>,
     ) -> Result<Vec<RuntimeEventRecord>> {
         let path = self.events_path(thread_id)?;
+        reject_symlinked_store_dir(&self.events_dir)?;
         reject_symlinked_store_file(&path)?;
         if !path.exists() {
             return Ok(Vec::new());
@@ -3854,6 +3856,27 @@ fn reject_symlinked_store_file(path: &Path) -> Result<()> {
         );
     }
     Ok(())
+}
+
+fn reject_symlinked_store_dir(path: &Path) -> Result<()> {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return Ok(());
+    };
+    if metadata.file_type().is_symlink() {
+        bail!(
+            "Runtime store directory must not be a symlink: {}",
+            path.display()
+        );
+    }
+    if !metadata.is_dir() {
+        bail!("Runtime store path must be a directory: {}", path.display());
+    }
+    Ok(())
+}
+
+fn ensure_runtime_store_dir(path: &Path) -> Result<()> {
+    fs::create_dir_all(path).with_context(|| format!("Failed to create {}", path.display()))?;
+    reject_symlinked_store_dir(path)
 }
 
 fn read_store_file(path: &Path) -> Result<String> {

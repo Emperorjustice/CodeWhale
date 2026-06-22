@@ -173,6 +173,25 @@ fn store_open_rejects_symlinked_state_file() {
 
 #[cfg(unix)]
 #[test]
+fn store_open_rejects_symlinked_store_directory() {
+    let dir = test_runtime_dir();
+    std::fs::create_dir_all(&dir).expect("mkdir runtime dir");
+    let outside = dir.join("outside-items");
+    let link = dir.join("items");
+    std::fs::create_dir_all(&outside).expect("mkdir outside");
+    std::os::unix::fs::symlink(&outside, &link).expect("symlink items dir");
+
+    let err = RuntimeThreadStore::open(dir.clone()).expect_err("symlink items dir should fail");
+    assert!(
+        format!("{err:#}").contains("directory must not be a symlink"),
+        "got: {err:#}"
+    );
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[cfg(unix)]
+#[test]
 fn store_list_items_rejects_symlinked_item_file() {
     let dir = test_runtime_dir();
     let store = RuntimeThreadStore::open(dir.clone()).expect("open store");
@@ -186,6 +205,27 @@ fn store_list_items_rejects_symlinked_item_file() {
         .list_items_for_turn(&item.turn_id)
         .expect_err("symlink item should fail");
     assert!(format!("{err:#}").contains("must not be a symlink"));
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn store_list_items_rejects_swapped_symlinked_store_directory() {
+    let dir = test_runtime_dir();
+    let store = RuntimeThreadStore::open(dir.clone()).expect("open store");
+    let outside = dir.join("outside-items");
+    std::fs::create_dir_all(&outside).expect("mkdir outside");
+    std::fs::remove_dir_all(&store.items_dir).expect("remove items dir");
+    std::os::unix::fs::symlink(&outside, &store.items_dir).expect("symlink items dir");
+
+    let err = store
+        .list_items_for_turn("turn_link")
+        .expect_err("swapped symlink items dir should fail");
+    assert!(
+        format!("{err:#}").contains("directory must not be a symlink"),
+        "got: {err:#}"
+    );
 
     let _ = std::fs::remove_dir_all(dir);
 }
