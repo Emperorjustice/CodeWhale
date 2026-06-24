@@ -559,7 +559,6 @@ impl Settings {
         if detected_legacy_windows_console_host() {
             self.low_motion = true;
             self.fancy_animations = false;
-            self.bracketed_paste = false;
             if self.synchronized_output.eq_ignore_ascii_case("auto") {
                 self.synchronized_output = "off".to_string();
             }
@@ -1105,6 +1104,18 @@ impl Settings {
     #[must_use]
     pub fn synchronized_output_enabled(&self) -> bool {
         !self.synchronized_output.eq_ignore_ascii_case("off")
+    }
+
+    /// Runtime bracketed-paste mode after terminal-host quirks are applied.
+    ///
+    /// This deliberately does not mutate [`Settings::bracketed_paste`]:
+    /// `apply_env_overrides()` can run before saving settings, and a legacy
+    /// conhost runtime fallback must not permanently disable bracketed paste
+    /// when the same config is later used in Windows Terminal or another
+    /// modern terminal.
+    #[must_use]
+    pub fn effective_bracketed_paste(&self) -> bool {
+        self.bracketed_paste && !detected_legacy_windows_console_host()
     }
 }
 
@@ -2224,7 +2235,11 @@ mod tests {
         assert!(settings.low_motion);
         assert!(!settings.fancy_animations);
         assert!(
-            !settings.bracketed_paste,
+            settings.bracketed_paste,
+            "env-only conhost fallback must not persistently mutate bracketed_paste (#1102)"
+        );
+        assert!(
+            !settings.effective_bracketed_paste(),
             "legacy Windows console hosts do not support crossterm bracketed paste (#1102)"
         );
         assert_eq!(settings.synchronized_output, "off");
