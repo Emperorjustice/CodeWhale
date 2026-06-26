@@ -656,8 +656,14 @@ mod tests {
         }
 
         // Config and debug groups must be found and verified by content identity
-        assert!(has_config, "config group not found (expected first command: /config)");
-        assert!(has_debug, "debug group not found (expected first command: /tokens)");
+        assert!(
+            has_config,
+            "config group not found (expected first command: /config)"
+        );
+        assert!(
+            has_debug,
+            "debug group not found (expected first command: /tokens)"
+        );
 
         // Consistency: group-iterated command count must match registry
         assert_eq!(
