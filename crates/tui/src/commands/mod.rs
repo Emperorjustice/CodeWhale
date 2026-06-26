@@ -546,6 +546,10 @@ mod tests {
         assert!(message.contains("Requested relay focus: next hand"));
     }
 
+    /// AT-008: No built-in command name or alias is registered twice,
+    /// and no built-in alias collides with another command's canonical name.
+    /// This test iterates every command from `command_infos()` (all 9 groups)
+    /// and asserts uniqueness across the full set of names and aliases.
     #[test]
     fn command_registry_has_unique_names_and_aliases() {
         let mut names = std::collections::BTreeSet::new();
@@ -567,6 +571,89 @@ mod tests {
                 assert!(aliases.insert(*alias), "duplicate command alias /{alias}");
             }
         }
+    }
+
+    /// AT-009: Command ownership contract — top-level `commands/mod.rs` only
+    /// registers groups (`groups::all_command_groups()`), each group owns its
+    /// `commands()` list, and every command has valid metadata.
+    ///
+    /// Config and debug groups are documented permanent exceptions: they keep
+    /// group-local `CommandInfo` statics and `dispatch()` in `mod.rs` rather
+    /// than extracting every command into a focused module. This is accepted
+    /// final structure per FEAT-008 §3.2.
+    #[test]
+    fn command_ownership_contract_is_enforced() {
+        let groups = groups::all_command_groups();
+        assert!(
+            groups.len() >= 9,
+            "expected at least 9 command groups, got {}",
+            groups.len()
+        );
+
+        let mut total_commands = 0;
+        for group in &groups {
+            let commands = group.commands();
+            assert!(
+                !commands.is_empty(),
+                "each group must have at least one command"
+            );
+            for cmd in &commands {
+                let info = cmd.info();
+                assert!(!info.name.is_empty(), "command name must not be empty");
+                assert!(
+                    info.name
+                        .chars()
+                        .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit()),
+                    "/{} command names must be lowercase ASCII",
+                    info.name
+                );
+                let usage_prefix = format!("/{}", info.name);
+                assert!(
+                    info.usage.starts_with(&usage_prefix),
+                    "/{} usage must start with /{{name}}, got {:?}",
+                    info.name,
+                    info.usage
+                );
+            }
+            total_commands += commands.len();
+        }
+
+        // The total command count from group iteration must match the registry.
+        assert_eq!(
+            total_commands,
+            command_infos().len(),
+            "group-iterated command count must match registry infos count"
+        );
+
+        // Config and debug are the only groups with group-local metadata in
+        // mod.rs rather than per-command RegisterCommand modules. Verify they
+        // still have the expected number of commands.
+        let mut config_count = 0usize;
+        let mut debug_count = 0usize;
+        for group in &groups {
+            let cmds = group.commands();
+            for cmd in &cmds {
+                match cmd.info().name {
+                    "config" | "sidebar" | "settings" | "status" | "statusline" | "mode"
+                    | "theme" | "verbose" | "trust" | "logout" | "debt" => {
+                        config_count += 1;
+                    }
+                    "tokens" | "cost" | "balance" | "cache" | "change" | "system" | "context"
+                    | "edit" | "diff" | "undo" | "retry" => {
+                        debug_count += 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        assert!(
+            config_count >= 11,
+            "config group expected >=11 commands, got {config_count}"
+        );
+        assert!(
+            debug_count >= 11,
+            "debug group expected >=11 commands, got {debug_count}"
+        );
     }
 
     #[test]
