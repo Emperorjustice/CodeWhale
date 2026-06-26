@@ -2,8 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::commands::traits::{CommandInfo, RegisterCommand};
 use crate::commands::CommandResult;
+use crate::commands::traits::{CommandInfo, RegisterCommand};
 use crate::localization::MessageId;
 use crate::tui::app::App;
 

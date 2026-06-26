@@ -6,8 +6,8 @@ use std::path::Path;
 use anyhow::{Context, bail};
 use toml::Value;
 
-use crate::commands::traits::{CommandInfo, RegisterCommand};
 use crate::commands::CommandResult;
+use crate::commands::traits::{CommandInfo, RegisterCommand};
 use crate::localization::MessageId;
 use crate::network_policy::host_from_url;
 use crate::tui::app::App;

@@ -809,7 +809,10 @@ impl crate::commands::traits::RegisterCommand for InitCmd {
         &COMMAND_INFO
     }
 
-    fn execute(app: &mut crate::tui::app::App, _arg: Option<&str>) -> crate::commands::CommandResult {
+    fn execute(
+        app: &mut crate::tui::app::App,
+        _arg: Option<&str>,
+    ) -> crate::commands::CommandResult {
         init(app)
     }
 }

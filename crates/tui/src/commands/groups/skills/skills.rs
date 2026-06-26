@@ -213,7 +213,11 @@ fn list_skills(app: &mut App, arg: Option<&str>) -> CommandResult {
 /// dispatches a sub-command (`install`, `update`, `uninstall`, `trust`).
 /// Try to run a skill by exact name (used for unified slash-command namespace, #435).
 /// Returns None when no skill with that name exists, so the caller can try other sources.
-pub(in crate::commands) fn run_skill_by_name(app: &mut App, name: &str, _arg: Option<&str>) -> Option<CommandResult> {
+pub(in crate::commands) fn run_skill_by_name(
+    app: &mut App,
+    name: &str,
+    _arg: Option<&str>,
+) -> Option<CommandResult> {
     let registry = discover_visible_skills(app);
     if registry.get(name).is_some() {
         Some(activate_skill(app, name))
@@ -637,7 +641,10 @@ impl crate::commands::traits::RegisterCommand for SkillsCmd {
         &SKILLS_INFO
     }
 
-    fn execute(app: &mut crate::tui::app::App, arg: Option<&str>) -> crate::commands::CommandResult {
+    fn execute(
+        app: &mut crate::tui::app::App,
+        arg: Option<&str>,
+    ) -> crate::commands::CommandResult {
         list_skills(app, arg)
     }
 }
@@ -657,7 +664,10 @@ impl crate::commands::traits::RegisterCommand for SkillCmd {
         &SKILL_INFO
     }
 
-    fn execute(app: &mut crate::tui::app::App, arg: Option<&str>) -> crate::commands::CommandResult {
+    fn execute(
+        app: &mut crate::tui::app::App,
+        arg: Option<&str>,
+    ) -> crate::commands::CommandResult {
         run_skill(app, arg)
     }
 }

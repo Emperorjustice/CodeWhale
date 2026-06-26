@@ -281,7 +281,10 @@ impl crate::commands::traits::RegisterCommand for NoteCmd {
         &COMMAND_INFO
     }
 
-    fn execute(app: &mut crate::tui::app::App, arg: Option<&str>) -> crate::commands::CommandResult {
+    fn execute(
+        app: &mut crate::tui::app::App,
+        arg: Option<&str>,
+    ) -> crate::commands::CommandResult {
         note(app, arg)
     }
 }

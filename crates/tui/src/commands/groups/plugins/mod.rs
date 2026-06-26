@@ -6,10 +6,10 @@
 
 use std::path::PathBuf;
 
+use crate::commands::CommandResult;
 use crate::commands::traits::{
     Command, CommandGroup, CommandInfo, FunctionCommand, RegisterCommand,
 };
-use crate::commands::CommandResult;
 use crate::config::Config;
 use crate::localization::{MessageId, tr};
 use crate::tools::plugin::scan_plugin_dir;
@@ -254,13 +254,7 @@ mod tests {
         let result = plugins(&mut app, None);
         let msg = result.message.expect("should return message");
         assert!(msg.contains("No plugin tools discovered"));
-        assert!(msg.contains(
-            &dir.path()
-                .canonicalize()
-                .unwrap()
-                .display()
-                .to_string()
-        ));
+        assert!(msg.contains(&dir.path().canonicalize().unwrap().display().to_string()));
         assert!(!result.is_error);
     }
 

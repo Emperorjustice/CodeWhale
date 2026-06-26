@@ -58,7 +58,9 @@ fn parse_frontmatter(content: &str) -> Option<TestPluginMeta> {
             .or_else(|| line.strip_prefix("//"))
             .or_else(|| line.strip_prefix("--"));
         let Some(rest) = rest else { continue };
-        let Some((key, value)) = rest.trim_start().split_once(':') else { continue };
+        let Some((key, value)) = rest.trim_start().split_once(':') else {
+            continue;
+        };
         match key.trim().to_lowercase().as_str() {
             "name" => name = value.trim().to_string(),
             "description" => description = value.trim().to_string(),
@@ -248,7 +250,10 @@ fn plugin_scanner_discovers_plugins(world: &mut PluginE2EWorld) {
 #[when("the plugin scanner runs")]
 fn plugin_scanner_runs(world: &mut PluginE2EWorld) {
     // Use the stored non-existent path
-    let msg = world.scanner_message.as_ref().expect("missing path message");
+    let msg = world
+        .scanner_message
+        .as_ref()
+        .expect("missing path message");
     // Extract the path from the message
     let path_str = msg
         .strip_prefix("No plugin directory found at ")
@@ -264,10 +269,7 @@ fn plugin_scanner_runs(world: &mut PluginE2EWorld) {
 
 #[then(regex = r"^the scanner should report (\d+) plugins?$")]
 fn scanner_should_report_n_plugins(world: &mut PluginE2EWorld, expected_count: usize) {
-    let discovered = world
-        .discovered
-        .as_ref()
-        .expect("scanner should have run");
+    let discovered = world.discovered.as_ref().expect("scanner should have run");
     assert_eq!(
         discovered.len(),
         expected_count,
@@ -282,10 +284,7 @@ fn scanned_plugin_should_have_description(
     name: String,
     expected_description: String,
 ) {
-    let discovered = world
-        .discovered
-        .as_ref()
-        .expect("scanner should have run");
+    let discovered = world.discovered.as_ref().expect("scanner should have run");
     let meta = discovered
         .iter()
         .find(|(_, m)| m.name == name)
@@ -304,10 +303,7 @@ fn scanned_plugin_should_have_approval(
     name: String,
     expected_approval: String,
 ) {
-    let discovered = world
-        .discovered
-        .as_ref()
-        .expect("scanner should have run");
+    let discovered = world.discovered.as_ref().expect("scanner should have run");
     let meta = discovered
         .iter()
         .find(|(_, m)| m.name == name)
@@ -327,10 +323,7 @@ fn scanned_plugin_should_have_approval(
 
 #[then(regex = r#"^the scanned plugin "([^"]+)" should not be found$"#)]
 fn scanned_plugin_should_not_be_found(world: &mut PluginE2EWorld, name: String) {
-    let discovered = world
-        .discovered
-        .as_ref()
-        .expect("scanner should have run");
+    let discovered = world.discovered.as_ref().expect("scanner should have run");
     assert!(
         !discovered.iter().any(|(_, m)| m.name == name),
         "plugin \"{name}\" should not be present in scan results, but was found"
@@ -339,10 +332,7 @@ fn scanned_plugin_should_not_be_found(world: &mut PluginE2EWorld, name: String) 
 
 #[then("the scanner should report the missing directory path")]
 fn scanner_should_report_missing_path(world: &mut PluginE2EWorld) {
-    let discovered = world
-        .discovered
-        .as_ref()
-        .expect("scanner should have run");
+    let discovered = world.discovered.as_ref().expect("scanner should have run");
     assert!(
         discovered.is_empty(),
         "expected empty results for missing directory, got: {discovered:#?}"

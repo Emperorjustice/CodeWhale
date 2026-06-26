@@ -100,7 +100,10 @@ impl crate::commands::traits::RegisterCommand for MemoryCmd {
         &COMMAND_INFO
     }
 
-    fn execute(app: &mut crate::tui::app::App, arg: Option<&str>) -> crate::commands::CommandResult {
+    fn execute(
+        app: &mut crate::tui::app::App,
+        arg: Option<&str>,
+    ) -> crate::commands::CommandResult {
         memory(app, arg)
     }
 }
