@@ -43,7 +43,7 @@ intentional:
 | `config` | Config, settings, status surfaces, mode, theme, trust, logout, and related settings commands. |
 | `debug` | Token/cost introspection, cache, system/context, diff/edit, undo, and retry. |
 | `memory` | Persistent memory and notes. |
-| `plugins` | Plugin management: list, install, and configure tools. |
+| `plugins` | Plugin discovery, listing, and per-plugin metadata detail display. |
 | `project` | Project initialization, sharing, LSP, and goal/hunt commands. |
 | `session` | Rename, save, fork/new/load sessions, compaction, purge, relay, and export. |
 | `skills` | Skill listing, execution, review, and restore. |
