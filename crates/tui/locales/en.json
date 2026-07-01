@@ -341,6 +341,7 @@
     "SetupConstitutionSourceLabel": "Source:",
     "SetupConstitutionValidityLabel": "Validity:",
     "SetupConstitutionPreviewLabel": "Preview hash:",
+    "SetupConstitutionExistingLabel": "Existing file:",
     "SetupConstitutionGuidedHint": "Use 1-5 to tune the guided draft, G to preview it, then G again to save. It is model guidance only and does not change runtime approval, sandbox, shell, network, trust, or MCP permissions.",
     "SetupConstitutionGuidedAnswersHint": "Guided answers are structured; preview shows the exact rendered user-global constitution that will be saved.",
     "SetupConstitutionPurposeLabel": "Purpose:",

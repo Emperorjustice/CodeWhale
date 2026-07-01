@@ -154,6 +154,7 @@ struct SetupRuntimeFacts {
     sandbox: String,
     network: String,
     runtime_result: String,
+    constitution_file: SetupConstitutionFileState,
 }
 
 impl Default for SetupRuntimeFacts {
@@ -172,6 +173,7 @@ impl Default for SetupRuntimeFacts {
             sandbox: "not configured".to_string(),
             network: "not configured".to_string(),
             runtime_result: "runtime posture not loaded".to_string(),
+            constitution_file: SetupConstitutionFileState::NotChecked,
         }
     }
 }
@@ -253,6 +255,80 @@ impl SetupRuntimeFacts {
             sandbox,
             network,
             runtime_result,
+            constitution_file: SetupConstitutionFileState::load(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SetupConstitutionFileState {
+    NotChecked,
+    Missing,
+    Loaded,
+    Empty,
+    Invalid,
+    Unreadable,
+    PathError,
+}
+
+impl SetupConstitutionFileState {
+    fn load() -> Self {
+        match UserConstitution::path() {
+            Ok(path) => Self::from_load(&UserConstitution::load_from(&path)),
+            Err(_) => Self::PathError,
+        }
+    }
+
+    fn from_load(load: &UserConstitutionLoad) -> Self {
+        match load {
+            UserConstitutionLoad::Missing => Self::Missing,
+            UserConstitutionLoad::Empty => Self::Empty,
+            UserConstitutionLoad::Invalid(_) => Self::Invalid,
+            UserConstitutionLoad::Unreadable(_) => Self::Unreadable,
+            UserConstitutionLoad::Loaded(_) => Self::Loaded,
+        }
+    }
+
+    fn label(self, choice: ConstitutionChoice, locale: Locale) -> &'static str {
+        match locale {
+            Locale::ZhHans => self.zh_hans_label(choice),
+            _ => self.english_label(choice),
+        }
+    }
+
+    fn english_label(self, choice: ConstitutionChoice) -> &'static str {
+        match self {
+            Self::NotChecked => "not checked yet",
+            Self::Missing => "no constitution.json found; bundled/default applies",
+            Self::Loaded if choice == ConstitutionChoice::GuidedCustom => {
+                "valid constitution.json present and selected"
+            }
+            Self::Loaded if choice.is_explicit() => {
+                "valid constitution.json present but inactive under the recorded choice"
+            }
+            Self::Loaded => "valid constitution.json present; preview or save guided to select it",
+            Self::Empty => "constitution.json is empty; use G to regenerate or U for bundled",
+            Self::Invalid => "constitution.json is invalid; use repair/regenerate or bundled",
+            Self::Unreadable => "constitution.json is unreadable; use repair/regenerate or bundled",
+            Self::PathError => "CODEWHALE_HOME could not be resolved for constitution.json",
+        }
+    }
+
+    fn zh_hans_label(self, choice: ConstitutionChoice) -> &'static str {
+        match self {
+            Self::NotChecked => "尚未检查",
+            Self::Missing => "未找到 constitution.json；使用内置/默认准则",
+            Self::Loaded if choice == ConstitutionChoice::GuidedCustom => {
+                "有效 constitution.json 已存在并已选择"
+            }
+            Self::Loaded if choice.is_explicit() => {
+                "有效 constitution.json 已存在，但当前记录选择使其不生效"
+            }
+            Self::Loaded => "有效 constitution.json 已存在；预览或保存引导式宪法即可选择",
+            Self::Empty => "constitution.json 为空；按 G 重新生成或按 U 使用内置",
+            Self::Invalid => "constitution.json 无效；请修复/重新生成，或使用内置",
+            Self::Unreadable => "constitution.json 无法读取；请修复/重新生成，或使用内置",
+            Self::PathError => "无法解析 CODEWHALE_HOME 中的 constitution.json",
         }
     }
 }
@@ -1123,6 +1199,11 @@ impl SetupWizardView {
         let choice = constitution_choice_label(self.state.constitution_choice);
         let source = constitution_source_label(self.state.constitution_source);
         let validity = constitution_validity_label(self.state.constitution_validity);
+        let source_state = format!("{source}; validity {validity}");
+        let existing_file = self
+            .facts
+            .constitution_file
+            .label(self.state.constitution_choice, self.locale);
         let preview = self
             .state
             .constitution_preview_hash
@@ -1131,9 +1212,9 @@ impl SetupWizardView {
             .to_string();
         vec![
             self.detail_row(MessageId::SetupConstitutionChoiceLabel, choice),
-            self.detail_row(MessageId::SetupConstitutionSourceLabel, source),
-            self.detail_row(MessageId::SetupConstitutionValidityLabel, validity),
+            self.detail_row(MessageId::SetupConstitutionSourceLabel, &source_state),
             self.detail_row(MessageId::SetupConstitutionPreviewLabel, &preview),
+            self.detail_row(MessageId::SetupConstitutionExistingLabel, existing_file),
             Line::from(Span::styled(
                 tr(self.locale, MessageId::SetupConstitutionGuidedAnswersHint).to_string(),
                 Style::default().fg(palette::TEXT_MUTED),
@@ -1762,6 +1843,80 @@ mod tests {
         assert!(zh_hans_text.contains("编码工作台"));
         assert!(zh_hans_text.contains("主动性："));
         assert!(zh_hans_text.contains("平衡"));
+    }
+
+    #[test]
+    fn constitution_file_state_labels_existing_override_states() {
+        assert!(
+            SetupConstitutionFileState::Missing
+                .label(ConstitutionChoice::Bundled, Locale::En)
+                .contains("no constitution.json")
+        );
+        assert!(
+            SetupConstitutionFileState::Loaded
+                .label(ConstitutionChoice::GuidedCustom, Locale::En)
+                .contains("selected")
+        );
+        assert!(
+            SetupConstitutionFileState::Loaded
+                .label(ConstitutionChoice::Bundled, Locale::En)
+                .contains("inactive")
+        );
+        assert!(
+            SetupConstitutionFileState::Invalid
+                .label(ConstitutionChoice::Unset, Locale::En)
+                .contains("invalid")
+        );
+        assert!(
+            SetupConstitutionFileState::Unreadable
+                .label(ConstitutionChoice::Unset, Locale::En)
+                .contains("unreadable")
+        );
+        assert!(
+            SetupConstitutionFileState::PathError
+                .label(ConstitutionChoice::Unset, Locale::ZhHans)
+                .contains("CODEWHALE_HOME")
+        );
+    }
+
+    #[test]
+    fn constitution_detail_lines_show_existing_file_state() {
+        let mut state = SetupState {
+            constitution_choice: ConstitutionChoice::Bundled,
+            constitution_source: ConstitutionSource::Bundled,
+            constitution_validity: ConstitutionValidity::Valid,
+            ..SetupState::default()
+        };
+        let facts = SetupRuntimeFacts {
+            constitution_file: SetupConstitutionFileState::Loaded,
+            ..SetupRuntimeFacts::default()
+        };
+        let view = SetupWizardView::new_at_with_facts(
+            state.clone(),
+            Locale::En,
+            SetupStep::Constitution,
+            facts,
+        );
+
+        let text = lines_to_text(view.constitution_detail_lines());
+        assert!(text.contains("Source: bundled; validity valid"));
+        assert!(text.contains("Existing file:"));
+        assert!(text.contains("inactive under the recorded choice"));
+
+        state.constitution_choice = ConstitutionChoice::GuidedCustom;
+        state.constitution_source = ConstitutionSource::UserGlobal;
+        let view = SetupWizardView::new_at_with_facts(
+            state,
+            Locale::ZhHans,
+            SetupStep::Constitution,
+            SetupRuntimeFacts {
+                constitution_file: SetupConstitutionFileState::Loaded,
+                ..SetupRuntimeFacts::default()
+            },
+        );
+        let text = lines_to_text(view.constitution_detail_lines());
+        assert!(text.contains("现有文件："));
+        assert!(text.contains("已存在并已选择"));
     }
 
     #[test]
