@@ -1431,6 +1431,7 @@ fn setup_report_result(state: &SetupState) -> String {
     )
 }
 
+#[cfg(test)]
 #[must_use]
 fn guided_constitution_template(locale: Locale) -> UserConstitution {
     GuidedConstitutionDraft::default().to_constitution(locale)
