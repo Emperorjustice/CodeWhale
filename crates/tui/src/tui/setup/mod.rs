@@ -161,6 +161,7 @@ struct SetupRuntimeFacts {
     runtime_result: String,
     default_mode: String,
     approval_policy_value: String,
+    project_override_warning: Option<String>,
     constitution_autonomy: String,
     constitution_file: SetupConstitutionFileState,
 }
@@ -186,6 +187,7 @@ impl Default for SetupRuntimeFacts {
             runtime_result: "runtime posture not loaded".to_string(),
             default_mode: "agent".to_string(),
             approval_policy_value: "on-request".to_string(),
+            project_override_warning: None,
             constitution_autonomy: "not loaded".to_string(),
             constitution_file: SetupConstitutionFileState::NotChecked,
         }
@@ -295,6 +297,10 @@ impl SetupRuntimeFacts {
                 .filter(|policy| !policy.trim().is_empty())
                 .unwrap_or("on-request")
                 .to_string(),
+            project_override_warning: project_runtime_override_warning(
+                &app.workspace,
+                app.ui_locale,
+            ),
             constitution_autonomy,
             constitution_file: SetupConstitutionFileState::load(),
         }
@@ -1545,6 +1551,13 @@ impl SetupWizardView {
     }
 
     fn runtime_posture_detail_lines(&self) -> Vec<Line<'static>> {
+        let project_override = self
+            .facts
+            .project_override_warning
+            .clone()
+            .unwrap_or_else(|| {
+                tr(self.locale, MessageId::SetupRuntimeProjectOverrideNone).to_string()
+            });
         let mut lines = vec![
             self.detail_row(MessageId::SetupCardIntentLabel, &self.facts.work_intent),
             self.detail_row(MessageId::SetupCardApprovalLabel, &self.facts.approval),
@@ -1559,6 +1572,10 @@ impl SetupWizardView {
             self.detail_row(
                 MessageId::SetupRuntimePresetDiffLabel,
                 &runtime_preset_inline_diff(self.runtime_preset, &self.facts),
+            ),
+            self.detail_row(
+                MessageId::SetupRuntimeProjectOverrideLabel,
+                &project_override,
             ),
             Line::from(Span::styled(
                 tr(self.locale, MessageId::SetupRuntimePostureBoundary).to_string(),
@@ -1788,7 +1805,7 @@ fn runtime_preset_diff_rows(preset: SetupRuntimePreset, facts: &SetupRuntimeFact
         || "unchanged; YOLO derives bypass from default_mode".to_string(),
         ToString::to_string,
     );
-    vec![
+    let mut rows = vec![
         format!(
             "settings.default_mode: {} -> {}",
             facts.default_mode,
@@ -1813,7 +1830,35 @@ fn runtime_preset_diff_rows(preset: SetupRuntimePreset, facts: &SetupRuntimeFact
             facts.network_default_value
         ),
         format!("workspace trust: {} -> unchanged", facts.trust),
-    ]
+    ];
+    if let Some(warning) = facts.project_override_warning.as_deref() {
+        rows.push(format!("project override warning: {warning}"));
+    }
+    rows
+}
+
+fn project_runtime_override_warning(workspace: &Path, locale: Locale) -> Option<String> {
+    let project = codewhale_config::load_project_config(workspace)?;
+    let mut fields = Vec::new();
+    if let Some(policy) = project.approval_policy.as_deref() {
+        fields.push(format!("approval_policy={policy}"));
+    }
+    if let Some(mode) = project.sandbox_mode.as_deref() {
+        fields.push(format!("sandbox_mode={mode}"));
+    }
+    if fields.is_empty() {
+        return None;
+    }
+    Some(match locale {
+        Locale::ZhHans => format!(
+            "此工作区的项目配置包含 {}。预设会保存用户默认值；项目配置仍可在此工作区收紧运行姿态。",
+            fields.join(", ")
+        ),
+        _ => format!(
+            "Project config contains {}. Presets save user defaults; project config can still tighten runtime posture in this workspace.",
+            fields.join(", ")
+        ),
+    })
 }
 
 fn setup_report_result(state: &SetupState, facts: &SetupRuntimeFacts) -> String {
@@ -2596,6 +2641,38 @@ mod tests {
         assert!(text.contains("config.allow_shell: true -> true"));
         assert!(text.contains("Safety floor:"));
         assert!(text.contains("Press A to preview"));
+    }
+
+    #[test]
+    fn runtime_posture_detail_lines_warn_about_project_overrides() {
+        let tmp = tempfile::TempDir::new().expect("workspace");
+        let project_dir = tmp.path().join(codewhale_config::CODEWHALE_APP_DIR);
+        std::fs::create_dir_all(&project_dir).expect("project config dir");
+        std::fs::write(
+            project_dir.join("config.toml"),
+            "approval_policy = \"never\"\nsandbox_mode = \"read-only\"\n",
+        )
+        .expect("project config");
+        let warning =
+            project_runtime_override_warning(tmp.path(), Locale::En).expect("project warning");
+        let facts = SetupRuntimeFacts {
+            project_override_warning: Some(warning),
+            ..SetupRuntimeFacts::default()
+        };
+        let view = SetupWizardView::new_at_with_facts(
+            SetupState::default(),
+            Locale::En,
+            SetupStep::TrustSandbox,
+            facts,
+        );
+
+        let text = lines_to_text(view.runtime_posture_detail_lines());
+
+        assert!(text.contains("Project override:"));
+        assert!(text.contains("approval_policy=never"));
+        assert!(text.contains("sandbox_mode=read-only"));
+        assert!(text.contains("project override warning"));
+        assert!(text.contains("project config can still tighten"));
     }
 
     #[test]

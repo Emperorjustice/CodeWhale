@@ -375,6 +375,8 @@
   "SetupRuntimePresetSafetyFloor": "安全底线：认证/OAuth 失败、策略阻止、发布类操作和人工复核仍可拦截运行。",
   "SetupRuntimePresetApplyHint": "按 A 预览此精确差异；预览后再次按 A 应用。",
   "SetupRuntimePresetApplied": "已应用运行姿态预设。",
+  "SetupRuntimeProjectOverrideLabel": "项目覆盖：",
+  "SetupRuntimeProjectOverrideNone": "未检测到 approval_policy 或 sandbox_mode 覆盖",
   "SetupReportFirstRunLabel": "首次运行：",
   "SetupReportUpdateLabel": "更新检查点：",
   "SetupReportSourceLabel": "来源：",
