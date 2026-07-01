@@ -1982,6 +1982,36 @@ fn create_test_options() -> TuiOptions {
     }
 }
 
+#[test]
+fn setup_checkpoint_opens_after_onboarding_when_due() {
+    let _home = SettingsHomeGuard::new();
+    let config = Config::default();
+    let mut app = App::new(create_test_options(), &config);
+    app.onboarding = OnboardingState::None;
+
+    assert!(open_setup_checkpoint_if_due(&mut app, &config, false));
+    assert_eq!(app.view_stack.top_kind(), Some(ModalKind::SetupWizard));
+    assert!(
+        !open_setup_checkpoint_if_due(&mut app, &config, false),
+        "setup wizard should not be stacked twice"
+    );
+}
+
+#[test]
+fn setup_checkpoint_waits_for_onboarding_and_skip_flag() {
+    let _home = SettingsHomeGuard::new();
+    let config = Config::default();
+    let mut app = App::new(create_test_options(), &config);
+    app.onboarding = OnboardingState::Tips;
+
+    assert!(!open_setup_checkpoint_if_due(&mut app, &config, false));
+    assert!(app.view_stack.is_empty());
+
+    app.onboarding = OnboardingState::None;
+    assert!(!open_setup_checkpoint_if_due(&mut app, &config, true));
+    assert!(app.view_stack.is_empty());
+}
+
 #[tokio::test]
 // This test intentionally pins the process-global spillover root until the
 // async receipt path finishes.

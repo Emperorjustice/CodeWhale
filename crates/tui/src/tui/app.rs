@@ -2874,21 +2874,21 @@ impl App {
         }
     }
 
-    pub fn finish_onboarding(&mut self) {
+    pub fn finish_onboarding_without_feature_intro(&mut self) {
         self.onboarding = OnboardingState::None;
         if let Err(err) = crate::tui::onboarding::mark_onboarded() {
             self.status_message = Some(format!("Failed to mark onboarding: {err}"));
         }
         self.needs_redraw = true;
-        self.maybe_show_feature_intro();
     }
 
     /// Show the one-time Fleet + Hotbar introduction nudge. Idempotent and
     /// gated by a persisted `Settings::feature_intro_shown` flag, so it appears
-    /// exactly once per install: at the end of first-run onboarding (called from
-    /// [`Self::finish_onboarding`]) and on the next launch for returning users
-    /// who haven't seen it (called from `run_tui` after `App::new`). Plain copy,
-    /// no marketing language. Stays silent while onboarding is still in progress.
+    /// exactly once per install: after first-run setup handoff when no
+    /// constitution checkpoint is due, and on the next launch for returning
+    /// users who haven't seen it (called from `run_tui` after `App::new`).
+    /// Plain copy, no marketing language. Stays silent while onboarding is
+    /// still in progress.
     pub fn maybe_show_feature_intro(&mut self) {
         if self.onboarding != OnboardingState::None {
             return;

@@ -19,15 +19,15 @@ pub fn lines() -> Vec<Line<'static>> {
         )),
         Line::from(""),
         Line::from(Span::styled(
-            "A focused terminal workspace for longer model sessions.",
+            "Make CodeWhale yours before the first prompt.",
             Style::default().fg(palette::TEXT_PRIMARY),
         )),
         Line::from(Span::styled(
-            "You'll add an API key, review trust for this directory, and then land in the chat.",
+            "Setup will choose your language, check provider readiness, and create or confirm your CodeWhale constitution.",
             Style::default().fg(palette::TEXT_MUTED),
         )),
         Line::from(Span::styled(
-            "The main composer is multi-line, so you can write full prompts instead of squeezing everything into one line.",
+            "Bundled defaults are valid; you can personalize standing guidance now or come back later with /constitution.",
             Style::default().fg(palette::TEXT_MUTED),
         )),
         Line::from(""),
@@ -40,4 +40,33 @@ pub fn lines() -> Vec<Line<'static>> {
             Style::default().fg(palette::TEXT_MUTED),
         )),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn body() -> String {
+        lines()
+            .into_iter()
+            .flat_map(|line| {
+                line.spans
+                    .into_iter()
+                    .map(|span| span.content.to_string())
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn welcome_copy_centers_constitution_first_setup() {
+        let body = body();
+
+        assert!(body.contains("CodeWhale constitution"));
+        assert!(body.contains("provider readiness"));
+        assert!(body.contains("/constitution"));
+        assert!(!body.contains("add an API key"));
+        assert!(!body.contains("land in the chat"));
+    }
 }

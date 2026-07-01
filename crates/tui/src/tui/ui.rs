@@ -579,6 +579,20 @@ fn drain_terminal_input_queue(
     Ok(())
 }
 
+fn open_setup_checkpoint_if_due(app: &mut App, config: &Config, skip_onboarding: bool) -> bool {
+    if skip_onboarding
+        || app.onboarding != crate::tui::app::OnboardingState::None
+        || app.view_stack.top_kind() == Some(ModalKind::SetupWizard)
+        || !crate::tui::setup::should_open_update_checkpoint(app, config)
+    {
+        return false;
+    }
+
+    app.view_stack
+        .push(crate::tui::setup::SetupWizardView::new_for_app(app, config));
+    true
+}
+
 /// Run the interactive TUI event loop.
 ///
 /// # Examples
@@ -733,23 +747,15 @@ pub async fn run_tui(config: &Config, options: TuiOptions) -> Result<()> {
     let mut app = App::new(options.clone(), config);
     sync_config_provider_from_app(config, &app);
 
-    // One-time Fleet + Hotbar intro for returning (non-resuming) users. First-
-    // time users see it when they finish onboarding. Gated by a persisted flag,
-    // so it shows exactly once and never inside a resumed session transcript.
     if options.resume_session_id.is_none() {
-        app.maybe_show_feature_intro();
-    }
-
-    if options.resume_session_id.is_none()
-        && !options.skip_onboarding
-        && app.onboarding == crate::tui::app::OnboardingState::None
-        && crate::tui::setup::should_open_update_checkpoint(&app, config)
-        && app.view_stack.top_kind() != Some(ModalKind::SetupWizard)
-    {
-        app.view_stack
-            .push(crate::tui::setup::SetupWizardView::new_for_app(
-                &app, config,
-            ));
+        let opened_setup = open_setup_checkpoint_if_due(&mut app, config, options.skip_onboarding);
+        // One-time Fleet + Hotbar intro for returning (non-resuming) users.
+        // First-time users see it when they finish onboarding. Gated by a
+        // persisted flag, so it shows exactly once and never inside a resumed
+        // session transcript or behind the constitution checkpoint.
+        if !opened_setup {
+            app.maybe_show_feature_intro();
+        }
     }
 
     // Load existing session if resuming.
@@ -3850,7 +3856,10 @@ async fn run_event_loop(
                         }
                         OnboardingState::TrustDirectory => {}
                         OnboardingState::Tips => {
-                            app.finish_onboarding();
+                            app.finish_onboarding_without_feature_intro();
+                            if !open_setup_checkpoint_if_due(app, config, false) {
+                                app.maybe_show_feature_intro();
+                            }
                         }
                         OnboardingState::None => {}
                     },
