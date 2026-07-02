@@ -19,15 +19,19 @@ pub fn lines() -> Vec<Line<'static>> {
         )),
         Line::from(""),
         Line::from(Span::styled(
-            "Make CodeWhale yours before the first prompt.",
+            "Code means two things here: the software you ship, and the law this agent works under.",
             Style::default().fg(palette::TEXT_PRIMARY),
         )),
         Line::from(Span::styled(
-            "Setup will choose your language, check provider readiness, and create or confirm your CodeWhale constitution.",
+            "Setup is short: choose the model you want to work with, let it help draft the constitution it will live under, then read and ratify.",
             Style::default().fg(palette::TEXT_MUTED),
         )),
         Line::from(Span::styled(
-            "Bundled defaults are valid; you can personalize standing guidance now or come back later with /constitution.",
+            "Nothing becomes law until you confirm. Language and provider readiness are checked along the way.",
+            Style::default().fg(palette::TEXT_MUTED),
+        )),
+        Line::from(Span::styled(
+            "Bundled defaults are valid; amend anytime with /constitution.",
             Style::default().fg(palette::TEXT_MUTED),
         )),
         Line::from(""),
@@ -63,7 +67,14 @@ mod tests {
     fn welcome_copy_centers_constitution_first_setup() {
         let body = body();
 
-        assert!(body.contains("CodeWhale constitution"));
+        // The dual meaning of "code" opens the arc: software and law.
+        assert!(body.contains("Code means two things"));
+        assert!(body.contains("the law this agent works under"));
+        // The arc itself: choose a model, let it draft its own law, ratify.
+        assert!(body.contains("choose the model"));
+        assert!(body.contains("draft the constitution it will live under"));
+        assert!(body.contains("read and ratify"));
+        assert!(body.contains("Nothing becomes law until you confirm"));
         assert!(body.contains("provider readiness"));
         assert!(body.contains("/constitution"));
         assert!(!body.contains("add an API key"));

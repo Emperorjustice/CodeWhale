@@ -2042,7 +2042,8 @@ fn constitution_ratification_text(
             };
             format!(
                 "CODEWHALE · 用户宪法\n{RULE}\n\n{drafted_by}\n\n\
-                 这是 CodeWhale 与你协作的长期准则。像优秀的宪法一样：足够简短因而可用，由持久原则而非详尽规则构成，并且可以随你修订。\n\n\
+                 这是 CodeWhale 与你协作的长期准则。像优秀的宪法一样：足够简短因而可用，由持久原则而非详尽规则构成，并且可以随你修订。\
+                 它界定权力与边界，而非裁决每个具体决定；它让协作跨会话延续——但它不是记忆，它承载的是原则，而非历史。\n\n\
                  {rendered}\n\n\
                  权限层级\n{layer_order}\n你的直接指令始终高于本文件。\n\n\
                  它不能做什么\n\
@@ -2064,7 +2065,10 @@ fn constitution_ratification_text(
                 "CODEWHALE · USER CONSTITUTION\n{RULE}\n\n{drafted_by}\n\n\
                  This is the standing law for how CodeWhale works with you. Like the best \
                  constitutions, it is short enough to use, made of durable principles rather \
-                 than exhaustive rules, and amendable as you change.\n\n\
+                 than exhaustive rules, and amendable as you change. It frames powers and \
+                 limits rather than deciding every case, and it gives your collaboration \
+                 continuity across sessions — but it is not memory: it carries principles, \
+                 not history.\n\n\
                  {rendered}\n\n\
                  HIERARCHY OF AUTHORITY\n{layer_order}\nYour direct requests always outrank this document.\n\n\
                  WHAT THIS CANNOT DO\n\
@@ -2083,11 +2087,9 @@ fn constitution_ratification_text(
 fn model_draft_invitation_line(locale: Locale, model_label: &str) -> String {
     match locale {
         Locale::ZhHans => {
-            format!("A 让 {model_label} 根据你的答案起草宪法——保存前由你批准。")
+            format!("A {model_label} 起草，你批准。未经确认不会保存。")
         }
-        _ => format!(
-            "A Ask {model_label} to draft it from your answers — you ratify before anything is saved."
-        ),
+        _ => format!("A {model_label} can draft it. You ratify it. Nothing saves without you."),
     }
 }
 
@@ -2711,7 +2713,7 @@ mod tests {
         // No ready provider: no invitation (and the blocker-size layout holds).
         let not_ready = SetupWizardView::new(SetupState::default(), Locale::En);
         let text = lines_to_text(not_ready.constitution_detail_lines());
-        assert!(!text.contains("Ask"));
+        assert!(!text.contains("can draft it"));
         assert!(!text.contains("awaits ratification"));
 
         // Ready provider: the invitation names the first configured model.
@@ -2722,14 +2724,14 @@ mod tests {
             ready_facts("GLM-5.2"),
         );
         let text = lines_to_text(ready.constitution_detail_lines());
-        assert!(text.contains("Ask GLM-5.2 to draft it from your answers"));
+        assert!(text.contains("GLM-5.2 can draft it. You ratify it."));
 
         // Installed draft: the card flips to the awaiting-ratification line.
         let mut with_draft = ready.clone();
         let _ = with_draft.install_model_draft(sample_model_draft(), "GLM-5.2".to_string());
         let text = lines_to_text(with_draft.constitution_detail_lines());
         assert!(text.contains("Draft by GLM-5.2 awaits ratification"));
-        assert!(!text.contains("Ask GLM-5.2 to draft"));
+        assert!(!text.contains("GLM-5.2 can draft it"));
     }
 
     #[test]
@@ -2797,8 +2799,13 @@ mod tests {
         assert!(english.contains("<codewhale_user_constitution"));
         assert!(english.contains("Layer order"));
         assert!(english.contains("press G to ratify and save"));
+        // Framing: powers and limits, not case-by-case; continuity, not memory.
+        assert!(english.contains("powers and limits rather than deciding every case"));
+        assert!(english.contains("but it is not memory"));
         assert!(zh_hans.contains("<codewhale_user_constitution"));
         assert!(zh_hans.contains("按 G 批准并保存"));
+        assert!(zh_hans.contains("它界定权力与边界"));
+        assert!(zh_hans.contains("但它不是记忆"));
         assert_ne!(english, zh_hans);
     }
 

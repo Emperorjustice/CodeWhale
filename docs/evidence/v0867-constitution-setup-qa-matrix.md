@@ -80,8 +80,10 @@ cargo run -p codewhale-tui --locked -- doctor --context-json | jq '.entries[] | 
 Capture these snippets in release notes or PR evidence when cutting the release
 candidate:
 
-1. Welcome screen includes "Make CodeWhale yours" and references the CodeWhale
-   constitution.
+1. Welcome screen opens with the dual meaning of "code" ("Code means two
+   things here"), walks the setup arc (choose the model, let it draft the
+   constitution it will live under, read and ratify), and states "Nothing
+   becomes law until you confirm."
 2. `/setup` Provider and Model card shows provider, model, auth state, and
    health without secrets.
 3. `/setup` Runtime Posture card says constitution guidance does not change
