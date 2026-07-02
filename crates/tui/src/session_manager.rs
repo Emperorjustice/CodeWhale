@@ -489,11 +489,21 @@ impl SessionManager {
 
     /// Clean up old sessions to stay within `MAX_SESSIONS` limit.
     pub fn cleanup_old_sessions(&self) -> std::io::Result<()> {
+        self.cleanup_old_sessions_keeping(None)
+    }
+
+    /// As [`Self::cleanup_old_sessions`], but never deletes `keep` — the
+    /// session being resumed at boot. Without this, a background cleanup that
+    /// races session restore can prune the just-resumed session when 50+
+    /// newer records exist (its `updated_at` is not bumped until first save).
+    pub fn cleanup_old_sessions_keeping(&self, keep: Option<&str>) -> std::io::Result<()> {
         let sessions = self.list_sessions()?;
 
         if sessions.len() > MAX_SESSIONS {
-            // Delete oldest sessions
             for session in sessions.iter().skip(MAX_SESSIONS) {
+                if keep.is_some_and(|id| id == session.id) {
+                    continue;
+                }
                 let _ = self.delete_session(&session.id);
             }
         }

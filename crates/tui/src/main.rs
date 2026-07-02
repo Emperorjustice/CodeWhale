@@ -6962,6 +6962,12 @@ async fn run_interactive(
     let janitor_snapshots_enabled = snapshots.enabled;
     let janitor_max_age = snapshots.max_age();
     let janitor_workspace = workspace.clone();
+    // Session cleanup races session restore: skip it entirely when a session
+    // is being resumed/continued this launch (the just-resumed session could
+    // be pruned before its first save bumps `updated_at`). It runs next
+    // clean launch. When we do run it, exclude the explicit resume id too.
+    let janitor_resume_id = resume_session_id.clone();
+    let janitor_skip_session_cleanup = resume_session_id.is_some() || cli.continue_session;
     tokio::task::spawn_blocking(move || {
         if janitor_snapshots_enabled {
             session_manager::prune_workspace_snapshots(&janitor_workspace, janitor_max_age);
@@ -6980,8 +6986,10 @@ async fn run_interactive(
             ),
         }
 
-        if let Ok(manager) = session_manager::SessionManager::default_location() {
-            let _ = manager.cleanup_old_sessions();
+        if !janitor_skip_session_cleanup
+            && let Ok(manager) = session_manager::SessionManager::default_location()
+        {
+            let _ = manager.cleanup_old_sessions_keeping(janitor_resume_id.as_deref());
         }
     });
 

@@ -125,6 +125,9 @@ const MODEL_CLASSES: [Choice; 6] = [
 pub struct FleetSetupSnapshot {
     workspace: PathBuf,
     locale: crate::localization::Locale,
+    /// Whether the active provider has a key or local runtime — gates the
+    /// model-draft offer, mirroring the constitution card's `provider_ready`.
+    provider_ready: bool,
     provider: String,
     model: String,
     reasoning: String,
@@ -161,6 +164,7 @@ impl FleetSetupSnapshot {
         Self {
             workspace: app.workspace.clone(),
             locale: app.ui_locale,
+            provider_ready: crate::config::has_api_key_for(config, app.api_provider),
             provider,
             model,
             reasoning: app.reasoning_effort_display_label(),
@@ -229,12 +233,23 @@ impl FleetSetupView {
         draft: Box<crate::fleet::profile::FleetProfileDraft>,
         model_label: String,
     ) -> (String, String) {
-        let title = format!("Fleet profile — draft by {model_label} (g ratifies)");
-        let content = format!(
-            "# .codewhale/agents/{}\n# Drafted by {model_label}, validated and bounded by CodeWhale.\n# Permissions stay at the fleet floor: no shell, no trust, approval required.\n# Nothing is saved until you press g in the wizard.\n\n{}",
-            draft.file_name(),
-            draft.render_toml()
-        );
+        let (title, header) = match self.snapshot.locale {
+            crate::localization::Locale::ZhHans => (
+                format!("Fleet 配置 — 由 {model_label} 起草（按 g 批准）"),
+                format!(
+                    "# .codewhale/agents/{}\n# 由 {model_label} 起草，并由 CodeWhale 校验与限界。\n# 权限保持在 Fleet 底线：无 shell、无 trust、需审批。\n# 在向导中按 g 之前不会保存任何内容。\n\n",
+                    draft.file_name()
+                ),
+            ),
+            _ => (
+                format!("Fleet profile — draft by {model_label} (g ratifies)"),
+                format!(
+                    "# .codewhale/agents/{}\n# Drafted by {model_label}, validated and bounded by CodeWhale.\n# Permissions stay at the fleet floor: no shell, no trust, approval required.\n# Nothing is saved until you press g in the wizard.\n\n",
+                    draft.file_name()
+                ),
+            ),
+        };
+        let content = format!("{header}{}", draft.render_toml());
         self.model_draft = Some(draft);
         self.model_draft_label = Some(model_label);
         (title, content)
@@ -362,7 +377,8 @@ impl FleetSetupView {
                 hints.push(ActionHint::new("Enter", "start"));
                 if self.model_draft.is_some() {
                     hints.push(ActionHint::new("g", "ratify draft"));
-                } else {
+                    hints.push(ActionHint::new("m", "redraft"));
+                } else if self.snapshot.provider_ready {
                     hints.push(ActionHint::new("m", "model draft"));
                 }
                 hints.push(ActionHint::new("←", "back"));
@@ -393,7 +409,7 @@ impl ModalView for FleetSetupView {
                 self.move_down();
                 ViewAction::None
             }
-            KeyCode::Char('m') if self.step == Step::Review => {
+            KeyCode::Char('m') if self.step == Step::Review && self.snapshot.provider_ready => {
                 ViewAction::Emit(ViewEvent::FleetProfileModelDraftRequested {
                     role: self.selected_role().to_string(),
                     model_class: self.selected_model_class().to_string(),
@@ -406,6 +422,21 @@ impl ModalView for FleetSetupView {
                 }
                 None => ViewAction::None,
             },
+            KeyCode::Enter | KeyCode::Right | KeyCode::Char('l')
+                if self.step == Step::Review && self.model_draft.is_some() =>
+            {
+                // A ratify-ready draft is on screen; Enter should ratify it,
+                // not silently start the manual profile-prompt flow and drop
+                // the draft.
+                match self.model_draft.clone() {
+                    Some(draft) => {
+                        ViewAction::EmitAndClose(ViewEvent::FleetProfileDraftCommitRequested {
+                            draft,
+                        })
+                    }
+                    None => ViewAction::None,
+                }
+            }
             KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => self.advance(),
             KeyCode::Left | KeyCode::Char('h') => self.back(),
             KeyCode::Home => {
@@ -816,6 +847,7 @@ mod tests {
         FleetSetupSnapshot {
             workspace: PathBuf::from("/tmp/codewhale-test-workspace"),
             locale: crate::localization::Locale::En,
+            provider_ready: true,
             provider: "DeepSeek".to_string(),
             model: "deepseek-v4-pro".to_string(),
             reasoning: "Auto".to_string(),

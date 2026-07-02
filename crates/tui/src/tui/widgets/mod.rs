@@ -1408,7 +1408,11 @@ impl Renderable for ApprovalWidget<'_> {
             return;
         }
 
-        let palette_colors = approval_palette(self.request.stakes());
+        // Compute stakes once for this render pass (it runs command_safety
+        // analysis on shell commands); reuse it for the palette and the
+        // left-rail gate instead of re-deriving per band.
+        let stakes = self.request.stakes();
+        let palette_colors = approval_palette(stakes);
         let (body, controls) = self.build_inline_content(area);
         let region = inline_region_for(area, &body, &controls);
         if region.width == 0 || region.height == 0 {
@@ -1487,10 +1491,7 @@ impl Renderable for ApprovalWidget<'_> {
             .wrap(Wrap { trim: false })
             .render(control_rect, buf);
 
-        if matches!(
-            self.request.stakes(),
-            crate::tui::approval::ApprovalStakes::Critical
-        ) {
+        if matches!(stakes, crate::tui::approval::ApprovalStakes::Critical) {
             paint_left_rail(region, buf, palette_colors.accent);
         }
     }

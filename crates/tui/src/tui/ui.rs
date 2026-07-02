@@ -5513,16 +5513,26 @@ async fn handle_fleet_profile_model_draft(
                 app.view_stack.push_boxed(boxed);
                 if let Some((title, content)) = preview {
                     open_text_pager(app, title, content);
-                    app.status_message = Some(format!(
-                        "{model_label} drafted the profile. Review the TOML, then press g to ratify."
-                    ));
+                    app.status_message = Some(match locale {
+                        crate::localization::Locale::ZhHans => {
+                            format!("{model_label} 已起草配置。请查看 TOML，然后按 g 批准。")
+                        }
+                        _ => format!(
+                            "{model_label} drafted the profile. Review the TOML, then press g to ratify."
+                        ),
+                    });
                 }
             }
         }
         Err(reason) => {
-            app.status_message = Some(format!(
-                "{model_label} could not draft the profile ({reason}). Enter still inserts the authoring prompt."
-            ));
+            app.status_message = Some(match locale {
+                crate::localization::Locale::ZhHans => {
+                    format!("{model_label} 未能起草配置（{reason}）。按 Enter 仍会插入编写提示。")
+                }
+                _ => format!(
+                    "{model_label} could not draft the profile ({reason}). Enter still inserts the authoring prompt."
+                ),
+            });
         }
     }
 }
@@ -9786,22 +9796,60 @@ async fn handle_view_events(
                     .workspace
                     .join(crate::fleet::profile::WORKSPACE_AGENT_PROFILE_DIR)
                     .join(draft.file_name());
+                // A ratified profile must not silently clobber a differently
+                // named existing profile that shares this id (which would also
+                // make the whole agents dir fail to load on the duplicate).
+                // Overwriting the SAME file is fine — that is an intentional
+                // re-draft of this profile.
+                let id_conflict =
+                    crate::fleet::profile::load_workspace_agent_profiles(&app.workspace)
+                        .ok()
+                        .into_iter()
+                        .flatten()
+                        .find(|p| p.id == draft.id && p.source != target);
+                if let Some(existing) = id_conflict {
+                    let zh = app.ui_locale == crate::localization::Locale::ZhHans;
+                    app.status_message = Some(if zh {
+                        format!(
+                            "配置 id `{}` 已被 {} 占用；请重新起草为不同的角色或先移除旧文件。",
+                            draft.id,
+                            existing.source.display()
+                        )
+                    } else {
+                        format!(
+                            "Profile id `{}` is already used by {}; redraft with a different role or remove the old file first.",
+                            draft.id,
+                            existing.source.display()
+                        )
+                    });
+                    app.needs_redraw = true;
+                    continue;
+                }
                 let mut txn = codewhale_config::persistence::SetupTransaction::new();
                 txn.stage(target.clone(), draft.render_toml().into_bytes());
                 match txn.commit() {
                     Ok(()) => {
+                        let zh = app.ui_locale == crate::localization::Locale::ZhHans;
                         app.add_message(HistoryCell::System {
-                            content: format!(
-                                "Fleet profile ratified and saved: {}",
-                                target.display()
-                            ),
+                            content: if zh {
+                                format!("已批准并保存 Fleet 配置：{}", target.display())
+                            } else {
+                                format!("Fleet profile ratified and saved: {}", target.display())
+                            },
                         });
-                        app.status_message =
-                            Some(format!("Fleet profile saved: {}", draft.file_name()));
+                        app.status_message = Some(if zh {
+                            format!("已保存 Fleet 配置：{}", draft.file_name())
+                        } else {
+                            format!("Fleet profile saved: {}", draft.file_name())
+                        });
                     }
                     Err(err) => {
                         app.status_message =
-                            Some(format!("Fleet profile could not be saved: {err:#}"));
+                            Some(if app.ui_locale == crate::localization::Locale::ZhHans {
+                                format!("无法保存 Fleet 配置：{err:#}")
+                            } else {
+                                format!("Fleet profile could not be saved: {err:#}")
+                            });
                     }
                 }
                 app.needs_redraw = true;

@@ -1512,6 +1512,12 @@ impl ModalView for SetupWizardView {
                 "G",
                 tr(self.locale, MessageId::SetupActionGuided).to_string(),
             ));
+            if self.facts.constitution_file == SetupConstitutionFileState::Loaded {
+                hints.push(ActionHint::new(
+                    "K",
+                    tr(self.locale, MessageId::SetupActionKeepExisting).to_string(),
+                ));
+            }
         } else if self.selected_step() == SetupStep::ProviderModel {
             hints.push(ActionHint::new(
                 "P",
