@@ -28,7 +28,7 @@ use crate::client::DeepSeekClient;
 use crate::config::MAX_SUBAGENTS;
 use crate::core::events::Event;
 use crate::dependencies::{ExternalTool, Git};
-use crate::llm_client::LlmClient;
+use crate::llm_client::{LlmClient, LlmError};
 use crate::models::{
     ContentBlock, Message, MessageRequest, MessageResponse, SystemPrompt, Tool, Usage,
 };
@@ -4126,7 +4126,11 @@ async fn run_subagent_task(task: SubAgentTask) {
             (summary, sentinel)
         }
         Err(err) => {
-            let annotated = annotate_child_model_error(&err.to_string(), &model_id);
+            crate::logging::warn(format!(
+                "sub-agent {} model request failed: {err:#}",
+                task.agent_id
+            ));
+            let annotated = annotate_child_model_error(&subagent_failure_message(err), &model_id);
             (
                 format!("Failed: {annotated}"),
                 subagent_failed_sentinel(&task.agent_id, &annotated),
@@ -4142,7 +4146,7 @@ async fn run_subagent_task(task: SubAgentTask) {
             },
             Err(err) => MailboxMessage::Failed {
                 agent_id: task.agent_id.clone(),
-                error: annotate_child_model_error(&err.to_string(), &model_id),
+                error: annotate_child_model_error(&subagent_failure_message(err), &model_id),
             },
         };
         let _ = mb.send(envelope);
@@ -4164,7 +4168,7 @@ async fn run_subagent_task(task: SubAgentTask) {
         Err(err) => {
             manager.update_failed(
                 &agent_id,
-                annotate_child_model_error(&err.to_string(), &model_id),
+                annotate_child_model_error(&subagent_failure_message(err), &model_id),
             );
         }
     }
@@ -6761,6 +6765,34 @@ fn build_allowed_tools(
     // registry execution guard still blocks approval-gated tools unless the
     // parent runtime is auto-approved.
     Ok(None)
+}
+
+/// Render a sub-agent model failure with its full error chain. `to_string()`
+/// on an anyhow error prints only the outermost context (for Codex children
+/// that is the bare "Responses API request failed"), discarding the HTTP
+/// status, sanitized body snippet, and error class carried by the source
+/// `LlmError` — the exact masking reported in #3884. The alternate format
+/// walks the chain, and the downcast prefixes a stable class tag so failure
+/// records distinguish auth/rate-limit/invalid-request/model/server/network
+/// failures at a glance.
+fn subagent_failure_message(err: &anyhow::Error) -> String {
+    let class = match err.downcast_ref::<LlmError>() {
+        Some(LlmError::RateLimited { .. }) => Some("rate_limited"),
+        Some(LlmError::ServerError { .. }) => Some("server"),
+        Some(LlmError::NetworkError(_)) | Some(LlmError::Timeout(_)) => Some("network"),
+        Some(LlmError::AuthenticationError(_)) | Some(LlmError::AuthorizationError(_)) => {
+            Some("auth")
+        }
+        Some(LlmError::InvalidRequest { .. }) => Some("invalid_request"),
+        Some(LlmError::ModelError(_)) => Some("model"),
+        Some(LlmError::ContentPolicyError(_)) => Some("content_policy"),
+        Some(LlmError::ContextLengthError(_)) => Some("context_length"),
+        Some(LlmError::ParseError(_)) | Some(LlmError::Other(_)) | None => None,
+    };
+    match class {
+        Some(class) => format!("[{class}] {err:#}"),
+        None => format!("{err:#}"),
+    }
 }
 
 /// When a child agent fails because its model is unavailable under the current

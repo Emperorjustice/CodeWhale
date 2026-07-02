@@ -922,6 +922,12 @@ mod tests {
             message.contains("blocked before it reached the model"),
             "{message}"
         );
+        // #3884: the structured LlmError must stay downcastable through the
+        // context layers so sub-agent failure records can classify it.
+        assert!(
+            err.downcast_ref::<crate::llm_client::LlmError>().is_some(),
+            "LlmError should survive the anyhow chain"
+        );
     }
 
     #[test]

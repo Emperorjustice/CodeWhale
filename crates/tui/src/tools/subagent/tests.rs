@@ -3264,6 +3264,47 @@ fn subagent_failed_sentinel_format_is_well_formed() {
 }
 
 #[test]
+fn subagent_failure_message_preserves_error_chain() {
+    // #3884: `to_string()` on an anyhow error prints only the outermost
+    // context ("Responses API request failed"), masking the HTTP status and
+    // body detail carried by the source `LlmError`. The failure message must
+    // walk the chain and prefix the error class.
+    let err = anyhow::Error::new(crate::llm_client::LlmError::InvalidRequest {
+        status: 400,
+        message: "model `gpt-5.5-codex` is not supported on this endpoint".to_string(),
+    })
+    .context("Responses API request failed");
+
+    let message = subagent_failure_message(&err);
+    assert!(message.starts_with("[invalid_request]"), "{message}");
+    assert!(
+        message.contains("Responses API request failed"),
+        "{message}"
+    );
+    assert!(message.contains("Invalid request (400)"), "{message}");
+    assert!(
+        message.contains("not supported on this endpoint"),
+        "{message}"
+    );
+
+    // Rate limits classify too — the fanout failure shape from the report.
+    let err = anyhow::Error::new(crate::llm_client::LlmError::RateLimited {
+        message: "please slow down".to_string(),
+        retry_after: None,
+    })
+    .context("Responses API request failed");
+    let message = subagent_failure_message(&err);
+    assert!(message.starts_with("[rate_limited]"), "{message}");
+    assert!(message.contains("please slow down"), "{message}");
+
+    // Plain errors with no LlmError in the chain pass through untagged but
+    // still fully chained.
+    let err = anyhow::anyhow!("boom").context("outer");
+    let message = subagent_failure_message(&err);
+    assert_eq!(message, "outer: boom");
+}
+
+#[test]
 fn annotate_child_model_error_adds_actionable_hint() {
     // #2653: a bare provider 403 becomes actionable by naming the model and the
     // recovery path, while unrelated errors pass through unchanged.

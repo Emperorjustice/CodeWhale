@@ -1488,7 +1488,10 @@ impl DeepSeekClient {
                 }
                 self.mark_request_failure(&last).await;
                 self.maybe_probe_recovery().await;
-                Err(anyhow::anyhow!(last))
+                // Keep the structured `LlmError` downcastable so failure
+                // surfaces can classify auth/rate-limit/invalid-request
+                // instead of reporting an opaque string (#3884).
+                Err(anyhow::Error::new(err.last_error))
             }
         }
     }
