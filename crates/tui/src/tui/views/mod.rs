@@ -1734,14 +1734,14 @@ fn experimental_config_rows(config: &Config) -> Vec<ConfigRow> {
     rows.push(ConfigRow {
         section: ConfigSection::Experimental,
         key: "goal_command".to_string(),
-        value: "preview placeholder (not stable; see #1976/#891)".to_string(),
+        value: "preview placeholder (not stable)".to_string(),
         editable: false,
         scope: ConfigScope::Saved,
     });
     rows.push(ConfigRow {
         section: ConfigSection::Experimental,
         key: "whaleflow".to_string(),
-        value: "preview overlay for workflow/fleet runs (not stable; see #3154/#3178)".to_string(),
+        value: "preview overlay for workflow/fleet runs (not stable)".to_string(),
         editable: false,
         scope: ConfigScope::Saved,
     });

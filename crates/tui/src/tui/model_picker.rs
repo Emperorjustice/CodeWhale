@@ -412,6 +412,19 @@ impl ModelPickerView {
             );
             lines.push(Line::from(spans));
         }
+        if rows.is_empty() {
+            // A search that matches nothing must say so, not render a bare
+            // empty box (#3757 UX review).
+            let message = if self.query.is_empty() {
+                "No models available.".to_string()
+            } else {
+                format!("No models match \"{}\" — Backspace to clear.", self.query)
+            };
+            lines.push(Line::from(Span::styled(
+                message,
+                Style::default().fg(palette::TEXT_MUTED),
+            )));
+        }
         Paragraph::new(lines).render(inner, buf);
     }
 }

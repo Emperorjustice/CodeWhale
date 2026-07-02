@@ -268,7 +268,7 @@ enum Commands {
     Fleet(FleetArgs),
     /// Run a code review over a git diff
     Review(ReviewArgs),
-    /// Open the TUI pre-seeded with a GitHub PR's title, body, and diff (#451)
+    /// Open the TUI pre-seeded with a GitHub PR's title, body, and diff
     Pr {
         /// PR number
         #[arg(value_name = "NUMBER")]
@@ -287,7 +287,7 @@ enum Commands {
     Apply(ApplyArgs),
     /// Run the offline evaluation harness (no network/LLM calls)
     Eval(EvalArgs),
-    /// Score a run's token/cache/cost from recorded turns; flag regressions vs a baseline (#3388)
+    /// Score a run's token/cache/cost from recorded turns; flag regressions vs a baseline
     Scorecard(ScorecardArgs),
     /// Manage MCP servers
     Mcp {
