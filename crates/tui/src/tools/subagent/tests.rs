@@ -5215,3 +5215,192 @@ fn cleanup_due_gates_write_locked_cleanup_to_a_bounded_cadence() {
         "a zero interval is always due"
     );
 }
+
+// ── #3882: bounded sub-agent output under Fleet fanout ─────────────────────
+
+/// Serialize-and-restore guard for the shared spillover test root, mirroring
+/// the pattern in `tools::truncate::tests`.
+fn with_spillover_root<F: FnOnce()>(root: &std::path::Path, f: F) {
+    let _guard = crate::tools::truncate::TEST_SPILLOVER_GUARD
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
+    let prior = crate::tools::truncate::set_test_spillover_root(Some(root.to_path_buf()));
+    struct Restore(Option<std::path::PathBuf>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::tools::truncate::set_test_spillover_root(self.0.take());
+        }
+    }
+    let _restore = Restore(prior);
+    f();
+}
+
+#[test]
+fn bounded_tail_messages_keeps_recent_within_budget_and_counts_omitted() {
+    let messages: Vec<Message> = (0..10)
+        .map(|i| text_message("user", &format!("{i}:{}", "x".repeat(10_000))))
+        .collect();
+
+    let (kept, omitted) = bounded_tail_messages(&messages, 35_000);
+
+    assert!(!kept.is_empty());
+    assert_eq!(kept.len() + omitted, messages.len());
+    assert!(omitted > 0, "a 100 KB history must not fit a 35 KB budget");
+    // The tail is the most recent slice, in order.
+    let last_kept = message_text(kept.last().expect("tail non-empty"));
+    assert!(
+        last_kept.starts_with("9:"),
+        "kept tail must end at the newest message"
+    );
+    let total: usize = kept.iter().map(approximate_message_bytes).sum();
+    assert!(
+        total <= 35_000 + 11_000,
+        "kept tail exceeds budget by more than one message: {total}"
+    );
+}
+
+#[test]
+fn bounded_tail_messages_always_keeps_the_final_message() {
+    let messages = vec![
+        text_message("user", &"a".repeat(50_000)),
+        text_message("assistant", &"b".repeat(50_000)),
+    ];
+
+    let (kept, omitted) = bounded_tail_messages(&messages, 10);
+
+    assert_eq!(
+        kept.len(),
+        1,
+        "the newest message survives even over budget"
+    );
+    assert_eq!(omitted, 1);
+    assert!(message_text(&kept[0]).starts_with('b'));
+}
+
+#[test]
+fn checkpoints_are_byte_bounded_under_fanout_scale_output() {
+    // Simulates the #3882 report shape: a worker whose tool results are
+    // multi-MB build logs. Without bounding, every per-step checkpoint clone
+    // carried the whole history; the persisted fleet file and every snapshot
+    // multiplied it further.
+    let huge = "error: expected `;`\n".repeat(120_000); // ~2.3 MB per message
+    let messages: Vec<Message> = (0..6).map(|_| text_message("user", &huge)).collect();
+
+    let checkpoint = make_checkpoint("fleet-worker-1", 6, messages.clone());
+
+    assert_eq!(checkpoint.message_count, messages.len());
+    assert!(checkpoint.omitted_messages > 0);
+    assert!(
+        !checkpoint.messages.is_empty(),
+        "checkpoint must stay continuable"
+    );
+    let serialized = serde_json::to_string(&checkpoint).expect("serialize checkpoint");
+    assert!(
+        serialized.len() <= SUBAGENT_CHECKPOINT_MESSAGE_BUDGET_BYTES + huge.len() + 64 * 1024,
+        "checkpoint JSON must be bounded, got {} bytes",
+        serialized.len()
+    );
+    // The raw history is ~14 MB; the checkpoint must not carry it.
+    assert!(
+        serialized.len() < 4 * 1024 * 1024,
+        "checkpoint JSON should be far below the raw transcript size, got {} bytes",
+        serialized.len()
+    );
+}
+
+#[test]
+fn checkpoint_without_omitted_field_still_deserializes() {
+    // Records persisted before v0.8.67 carry no omitted_messages key.
+    let legacy = r#"{
+        "checkpoint_id": "a:step:1:ts:1",
+        "agent_id": "a",
+        "continuation_handle": "agent:a:checkpoint:a:step:1:ts:1",
+        "reason": "interrupted",
+        "continuable": true,
+        "steps_taken": 1,
+        "message_count": 1,
+        "created_at_ms": 1
+    }"#;
+    let checkpoint: SubAgentCheckpoint =
+        serde_json::from_str(legacy).expect("legacy checkpoint should load");
+    assert_eq!(checkpoint.omitted_messages, 0);
+}
+
+#[test]
+fn subagent_tool_results_spill_to_disk_and_stay_bounded_inline() {
+    let tmp = tempdir().expect("tempdir");
+    with_spillover_root(tmp.path(), || {
+        let raw = "cargo build noise line\n".repeat(220_000); // ~5 MB
+        let raw_len = raw.len();
+
+        let (inline, spilled) =
+            bound_subagent_tool_result("fleet-worker-1", "call-42", raw.clone());
+
+        let path = spilled.expect("multi-MB output must spill");
+        // Model-visible content is bounded to head + footer.
+        assert!(inline.len() <= crate::tools::truncate::SPILLOVER_HEAD_BYTES + 1024);
+        assert!(inline.contains("Sub-agent tool output truncated"));
+        assert!(inline.contains(&path.display().to_string()));
+        assert!(inline.contains("read_file"));
+        // Full output remains recoverable from disk.
+        let on_disk = std::fs::read_to_string(&path).expect("spill file readable");
+        assert_eq!(on_disk.len(), raw_len);
+
+        // Small outputs pass through untouched, no spill file.
+        let (small, spilled) =
+            bound_subagent_tool_result("fleet-worker-1", "call-43", "ok".to_string());
+        assert_eq!(small, "ok");
+        assert!(spilled.is_none());
+
+        // Oversized error output is bounded too: sub-agent errors are
+        // routinely full build logs, unlike the root loop's short errors.
+        let (bounded_err, spilled) =
+            bound_subagent_tool_result("fleet-worker-1", "call-44", format!("Error: {raw}"));
+        assert!(spilled.is_some());
+        assert!(bounded_err.len() <= crate::tools::truncate::SPILLOVER_HEAD_BYTES + 1024);
+        assert!(bounded_err.starts_with("Error:"));
+    });
+}
+
+#[test]
+fn fanout_of_workers_with_huge_outputs_keeps_resident_state_bounded() {
+    // Acceptance shape for #3882: multiple workers, each emitting multi-MB
+    // tool output. Model-visible content and per-worker checkpoints stay
+    // bounded while every full output is recoverable from disk.
+    let tmp = tempdir().expect("tempdir");
+    with_spillover_root(tmp.path(), || {
+        let huge = "warning: unused import `std::mem`\n".repeat(70_000); // ~2.4 MB
+        let mut resident_bytes = 0usize;
+
+        for worker in 0..4 {
+            let agent_id = format!("fleet-worker-{worker}");
+            let mut messages = Vec::new();
+            for call in 0..3 {
+                let (inline, spilled) =
+                    bound_subagent_tool_result(&agent_id, &format!("call-{call}"), huge.clone());
+                let path = spilled.expect("should spill");
+                assert_eq!(
+                    std::fs::read_to_string(&path).expect("readable").len(),
+                    huge.len()
+                );
+                resident_bytes += inline.len();
+                messages.push(text_message("user", &inline));
+            }
+            let checkpoint = make_checkpoint(&agent_id, 3, messages);
+            let serialized = serde_json::to_string(&checkpoint).expect("serialize");
+            assert!(
+                serialized.len() <= SUBAGENT_CHECKPOINT_MESSAGE_BUDGET_BYTES + 128 * 1024,
+                "worker {worker} checkpoint too large: {} bytes",
+                serialized.len()
+            );
+            resident_bytes += serialized.len();
+        }
+
+        // 4 workers × 3 calls × ~2.4 MB ≈ 29 MB raw. Bounded resident state
+        // must stay under 2 MB total.
+        assert!(
+            resident_bytes < 2 * 1024 * 1024,
+            "resident bytes not bounded: {resident_bytes}"
+        );
+    });
+}

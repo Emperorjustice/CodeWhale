@@ -42,6 +42,7 @@ use crate::tools::spec::{
 use crate::tools::todo::SharedTodoList;
 #[cfg(test)]
 use crate::tools::todo::TodoList;
+use crate::tools::truncate::{SPILLOVER_HEAD_BYTES, SPILLOVER_THRESHOLD_BYTES, maybe_spillover};
 use crate::tui::app::ReasoningEffort;
 use crate::utils::spawn_supervised;
 use crate::worker_profile::{ModelRoute, ShellPolicy, ToolScope, WorkerRuntimeProfile};
@@ -116,6 +117,20 @@ const DEFAULT_STEP_API_TIMEOUT: Duration =
 const COMPLETED_AGENT_RETENTION: Duration = Duration::from_secs(60 * 60);
 const MAX_AGENT_WORKER_RECORDS: usize = 256;
 const MAX_AGENT_WORKER_EVENTS_PER_RECORD: usize = 128;
+/// Byte budget for the message tail retained in a [`SubAgentCheckpoint`]
+/// (#3882). Checkpoints fire on every step of every worker and are cloned
+/// into snapshots, projections, and `subagents.v1.json`; an unbounded
+/// `messages` clone turns one large tool output into many resident copies
+/// under Fleet fanout. The checkpoint keeps the most recent messages within
+/// this budget (always at least the last one, so continuability is
+/// preserved) and records how many older messages were omitted. Full tool
+/// outputs remain recoverable from the spillover files on disk.
+const SUBAGENT_CHECKPOINT_MESSAGE_BUDGET_BYTES: usize = 256 * 1024;
+/// Byte budget for the message tail embedded in a `subagent_full_transcript`
+/// handle (#3882). One handle is retained in memory per agent; the payload
+/// keeps a bounded tail plus the true `message_count` so inspection stays
+/// useful without pinning a whole unbounded transcript in RAM.
+const SUBAGENT_TRANSCRIPT_MESSAGE_BUDGET_BYTES: usize = 1024 * 1024;
 const SUBAGENT_STATE_SCHEMA_VERSION: u32 = 1;
 const SUBAGENT_STATE_FILE: &str = "subagents.v1.json";
 const SUBAGENT_WORKTREE_ROOT_DIR: &str = ".codewhale-worktrees";
@@ -1278,6 +1293,13 @@ struct AgentUsageBudgetScope {
 }
 
 /// Durable recovery point for an interrupted sub-agent session.
+///
+/// `messages` is a byte-bounded tail (#3882), not the full history:
+/// checkpoints fire per step and are cloned into snapshots/persistence, so an
+/// unbounded clone multiplies large tool outputs under Fleet fanout.
+/// `message_count` records the true total and `omitted_messages` how many of
+/// the oldest were dropped from this snapshot; spilled tool outputs remain on
+/// disk under the spillover directory.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SubAgentCheckpoint {
     pub checkpoint_id: String,
@@ -1290,6 +1312,15 @@ pub struct SubAgentCheckpoint {
     pub created_at_ms: u64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub messages: Vec<Message>,
+    /// Oldest messages omitted from `messages` to honor the checkpoint byte
+    /// budget. `0` for records written before v0.8.67 (serde default).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub omitted_messages: usize,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -4332,6 +4363,18 @@ async fn insert_subagent_full_transcript_handle(
     duration_ms: u64,
     fork_context: bool,
 ) -> VarHandle {
+    // Byte-bound the retained transcript (#3882): the handle store keeps this
+    // payload resident per agent, and the checkpoint already carries its own
+    // bounded message tail — embedding it verbatim would duplicate that tail
+    // inside one payload. Keep checkpoint metadata, drop its messages, and
+    // record how much of the true history the bounded tail omits.
+    let (bounded_messages, omitted_messages) =
+        bounded_tail_messages(messages, SUBAGENT_TRANSCRIPT_MESSAGE_BUDGET_BYTES);
+    let checkpoint_meta = checkpoint.map(|checkpoint| SubAgentCheckpoint {
+        omitted_messages: checkpoint.message_count,
+        messages: Vec::new(),
+        ..checkpoint.clone()
+    });
     let payload = json!({
         "kind": "subagent_full_transcript",
         "agent_id": agent_id,
@@ -4343,11 +4386,94 @@ async fn insert_subagent_full_transcript_handle(
         "steps_taken": steps_taken,
         "duration_ms": duration_ms,
         "assignment": assignment,
-        "checkpoint": checkpoint,
-        "messages": messages,
+        "checkpoint": checkpoint_meta,
+        "message_count": messages.len(),
+        "omitted_messages": omitted_messages,
+        "messages": bounded_messages,
     });
     let mut store = runtime.context.runtime.handle_store.lock().await;
     store.insert_json(format!("agent:{agent_id}"), "full_transcript", payload)
+}
+
+/// Bound a sub-agent tool result before it enters `messages` (#3882).
+///
+/// The root engine applies spillover in `turn_loop.rs`; the sub-agent loop
+/// bypassed it, so one multi-MB build log became many resident copies across
+/// child messages, checkpoints, transcript handles, and persistence — the
+/// Fleet fanout memory blow-up. Over-threshold content (successes AND
+/// errors: sub-agent error output is routinely a full build log, so the root
+/// loop's pass-errors-through rationale does not hold here) is written to the
+/// shared spillover directory and replaced inline by a bounded head plus a
+/// footer naming the on-disk path.
+///
+/// Returns the (possibly bounded) content and the spillover path when one was
+/// written. Spillover write failures degrade to passing the original content
+/// through, mirroring `apply_spillover`.
+fn bound_subagent_tool_result(
+    agent_id: &str,
+    tool_id: &str,
+    content: String,
+) -> (String, Option<PathBuf>) {
+    if content.len() <= SPILLOVER_THRESHOLD_BYTES {
+        return (content, None);
+    }
+    let spill_id = format!("sa_{agent_id}_{tool_id}");
+    match maybe_spillover(
+        &spill_id,
+        &content,
+        SPILLOVER_THRESHOLD_BYTES,
+        SPILLOVER_HEAD_BYTES,
+    ) {
+        Ok(Some((head, path))) => {
+            let footer = format!(
+                "\n\n[Sub-agent tool output truncated: {head_kib} KiB of {total_kib} KiB shown. \
+                 Full output saved to {path}. Use `read_file` on that path if you need the \
+                 elided output.]",
+                head_kib = head.len() / 1024,
+                total_kib = content.len() / 1024,
+                path = path.display(),
+            );
+            (format!("{head}{footer}"), Some(path))
+        }
+        Ok(None) => (content, None),
+        Err(err) => {
+            tracing::warn!(
+                target: "subagent",
+                ?err,
+                agent_id,
+                tool_id,
+                "sub-agent spillover write failed; passing original content through"
+            );
+            (content, None)
+        }
+    }
+}
+
+/// Rough serialized size of one message, used for checkpoint/transcript byte
+/// budgets. Exact JSON size via serde; unserializable messages (should not
+/// happen) count as 1 KiB so they still consume budget.
+fn approximate_message_bytes(message: &Message) -> usize {
+    serde_json::to_string(message).map_or(1024, |s| s.len())
+}
+
+/// Keep the most recent messages whose combined approximate size fits
+/// `budget_bytes`. Always keeps at least the final message (even if it alone
+/// exceeds the budget) so a non-empty history stays continuable. Returns the
+/// retained tail and how many older messages were omitted.
+fn bounded_tail_messages(messages: &[Message], budget_bytes: usize) -> (Vec<Message>, usize) {
+    let mut kept_rev: Vec<Message> = Vec::new();
+    let mut used = 0usize;
+    for message in messages.iter().rev() {
+        let size = approximate_message_bytes(message);
+        if !kept_rev.is_empty() && used.saturating_add(size) > budget_bytes {
+            break;
+        }
+        used = used.saturating_add(size);
+        kept_rev.push(message.clone());
+    }
+    kept_rev.reverse();
+    let omitted = messages.len().saturating_sub(kept_rev.len());
+    (kept_rev, omitted)
 }
 
 fn build_subagent_checkpoint(
@@ -4359,6 +4485,8 @@ fn build_subagent_checkpoint(
 ) -> SubAgentCheckpoint {
     let created_at_ms = epoch_millis_now();
     let checkpoint_id = format!("{agent_id}:step:{steps_taken}:ts:{created_at_ms}");
+    let (bounded_messages, omitted_messages) =
+        bounded_tail_messages(messages, SUBAGENT_CHECKPOINT_MESSAGE_BUDGET_BYTES);
     SubAgentCheckpoint {
         checkpoint_id: checkpoint_id.clone(),
         agent_id: agent_id.to_string(),
@@ -4368,7 +4496,8 @@ fn build_subagent_checkpoint(
         steps_taken,
         message_count: messages.len(),
         created_at_ms,
-        messages: messages.to_vec(),
+        messages: bounded_messages,
+        omitted_messages,
     }
 }
 
@@ -5143,6 +5272,18 @@ async fn run_subagent(
                 Err(_) => format!("Error: Tool {tool_name} timed out"),
             };
             let tool_ok = !result.starts_with("Error:");
+            let (result, spilled_to) = bound_subagent_tool_result(&agent_id, &tool_id, result);
+            if let Some(path) = spilled_to.as_ref() {
+                record_agent_progress(
+                    runtime,
+                    &agent_id,
+                    format!(
+                        "{}: tool '{tool_display_name}' output spilled to {}",
+                        format_step_counter(steps, max_steps),
+                        path.display()
+                    ),
+                );
+            }
             record_agent_progress(
                 runtime,
                 &agent_id,
