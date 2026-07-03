@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Raised the streamed model-response idle timeout and matched the TUI stall
   watchdog to the configured stream budget so long reasoning pauses are not
   recovered as stalled turns (#2487).
+- Fixed Codex OAuth/sub-agent release diagnostics so `auth list` reports an
+  active Codex OAuth file, Responses API child requests encode inherited tool
+  names safely, and rate-limited Codex child requests checkpoint as resumable
+  provider interruptions instead of terminal opaque failures (#3884).
+- Fixed fresh launch/setup testing with an explicit `CODEWHALE_HOME` so config,
+  settings, theme prefs, and doctor legacy-state diagnostics do not inherit
+  unrelated ambient `~/.deepseek` files.
 
 ### Removed
 
