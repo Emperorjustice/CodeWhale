@@ -26,6 +26,19 @@ impl RegisterCommand for SetupCmd {
             None | Some("open" | "wizard" | "checkpoint") => {
                 CommandResult::action(AppAction::OpenSetupWizard)
             }
+            Some("provider" | "providers" | "model" | "models" | "route") => {
+                CommandResult::action(AppAction::OpenSetupWizardAt {
+                    step: SetupStep::ProviderModel,
+                })
+            }
+            Some("runtime" | "posture" | "trust" | "sandbox") => {
+                CommandResult::action(AppAction::OpenSetupWizardAt {
+                    step: SetupStep::TrustSandbox,
+                })
+            }
+            Some("constitution" | "law") => CommandResult::action(AppAction::OpenSetupWizardAt {
+                step: SetupStep::Constitution,
+            }),
             Some("status" | "report" | "verification" | "verify") => {
                 CommandResult::action(AppAction::OpenSetupWizardAt {
                     step: SetupStep::Verification,
@@ -108,6 +121,28 @@ mod tests {
             })
         );
         assert!(result.message.is_none());
+    }
+
+    #[test]
+    fn setup_named_steps_open_matching_wizard_cards() {
+        let cases = [
+            ("provider", SetupStep::ProviderModel),
+            ("model", SetupStep::ProviderModel),
+            ("runtime", SetupStep::TrustSandbox),
+            ("posture", SetupStep::TrustSandbox),
+            ("constitution", SetupStep::Constitution),
+        ];
+
+        for (arg, step) in cases {
+            let mut app = test_app();
+            let result = SetupCmd::execute(&mut app, Some(arg));
+            assert_eq!(
+                result.action,
+                Some(AppAction::OpenSetupWizardAt { step }),
+                "{arg}"
+            );
+            assert!(result.message.is_none(), "{arg}");
+        }
     }
 
     #[test]
