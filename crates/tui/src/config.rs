@@ -6296,6 +6296,11 @@ fn provider_config_is_explicit(entry: &ProviderConfig) -> bool {
 /// `[providers.<name>] api_key = "..."` to `~/.codewhale/config.toml`.
 /// Returns the config file path.
 pub fn save_api_key_for(provider: ApiProvider, api_key: &str) -> Result<PathBuf> {
+    if provider == ApiProvider::OpenaiCodex {
+        anyhow::bail!(
+            "OpenAI Codex uses OAuth. Run `codex login` or set OPENAI_CODEX_ACCESS_TOKEN; CodeWhale does not store an API key for this provider."
+        );
+    }
     if matches!(provider, ApiProvider::Deepseek | ApiProvider::DeepseekCN) {
         return match save_api_key(api_key)? {
             SavedCredential::KeyringAndConfigFile { path, .. }

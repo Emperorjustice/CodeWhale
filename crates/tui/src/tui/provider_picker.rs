@@ -1639,14 +1639,18 @@ impl ProviderPickerView {
 
         // The action footer moves into the body so it wraps instead of clipping
         // at narrow widths (#3732); the key-entry fields render above it.
-        let content = render_modal_footer(
-            inner,
-            buf,
-            &[
-                ActionHint::new("Enter", "save & switch"),
-                ActionHint::new("Esc", "back"),
-            ],
-        );
+        let content = if codex_oauth {
+            render_modal_footer(inner, buf, &[ActionHint::new("Esc", "back")])
+        } else {
+            render_modal_footer(
+                inner,
+                buf,
+                &[
+                    ActionHint::new("Enter", "save & switch"),
+                    ActionHint::new("Esc", "back"),
+                ],
+            )
+        };
 
         let layout = Layout::default()
             .direction(Direction::Vertical)
@@ -1658,13 +1662,18 @@ impl ProviderPickerView {
             .split(content);
 
         let masked = mask_key(&self.api_key_input);
-        let display = if masked.is_empty() {
+        let display = if codex_oauth {
+            "(run codex login; no token is stored here)".to_string()
+        } else if masked.is_empty() {
             "(paste key here)".to_string()
         } else {
             masked
         };
         let key_lines = vec![Line::from(vec![
-            Span::styled("Key: ", Style::default().fg(palette::TEXT_MUTED)),
+            Span::styled(
+                if codex_oauth { "Auth: " } else { "Key: " },
+                Style::default().fg(palette::TEXT_MUTED),
+            ),
             Span::styled(
                 display,
                 Style::default()
@@ -1837,6 +1846,9 @@ impl ModalView for ProviderPickerView {
     fn handle_paste(&mut self, text: &str) -> bool {
         match self.stage {
             Stage::KeyEntry => {
+                if self.selected_provider() == ApiProvider::OpenaiCodex {
+                    return true;
+                }
                 let sanitized: String = text.chars().filter(|c| !c.is_whitespace()).collect();
                 if !sanitized.is_empty() {
                     self.api_key_input.push_str(&sanitized);
@@ -1935,14 +1947,21 @@ impl ModalView for ProviderPickerView {
                     ViewAction::None
                 }
                 KeyCode::Backspace => {
-                    self.api_key_input.pop();
+                    if self.selected_provider() != ApiProvider::OpenaiCodex {
+                        self.api_key_input.pop();
+                    }
                     ViewAction::None
                 }
                 KeyCode::Char('h') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    self.api_key_input.pop();
+                    if self.selected_provider() != ApiProvider::OpenaiCodex {
+                        self.api_key_input.pop();
+                    }
                     ViewAction::None
                 }
                 KeyCode::Enter => {
+                    if self.selected_provider() == ApiProvider::OpenaiCodex {
+                        return ViewAction::None;
+                    }
                     let key = self.api_key_input.trim().to_string();
                     if key.is_empty() {
                         // Stay in key-entry; the user can press Esc to abort.
@@ -1958,6 +1977,9 @@ impl ModalView for ProviderPickerView {
                     }
                 }
                 KeyCode::Char(c) => {
+                    if self.selected_provider() == ApiProvider::OpenaiCodex {
+                        return ViewAction::None;
+                    }
                     // Reject ASCII whitespace so a stray space/tab doesn't slip
                     // into a credential; bracketed paste happens via the input
                     // path that already trims on submit.
@@ -3315,6 +3337,35 @@ mod tests {
             }
             other => panic!("expected ProviderPickerApiKeySubmitted, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn openai_codex_key_entry_is_oauth_only() {
+        let config = Config::default();
+        let mut picker = ProviderPickerView::new_for_missing_auth(
+            ApiProvider::Deepseek,
+            ApiProvider::OpenaiCodex,
+            &config,
+            None,
+        )
+        .expect("OpenAI Codex has a picker row");
+        assert_eq!(picker.stage, Stage::KeyEntry);
+
+        let rendered = render_text(&picker, 96, 20);
+        assert!(rendered.contains("OAuth login"));
+        assert!(rendered.contains("no token is stored here"));
+        assert!(!rendered.contains("save & switch"));
+        assert!(!rendered.contains("(paste key here)"));
+
+        assert!(picker.handle_paste("codex-token"));
+        for c in "codex-token".chars() {
+            picker.handle_key(key(KeyCode::Char(c)));
+        }
+        assert!(picker.api_key_input.is_empty());
+        assert!(matches!(
+            picker.handle_key(key(KeyCode::Enter)),
+            ViewAction::None
+        ));
     }
 
     #[test]

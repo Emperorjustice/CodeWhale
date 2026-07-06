@@ -2688,6 +2688,16 @@ base_url = "https://openrouter.ai/api/v1" # pinned
     Ok(())
 }
 
+#[test]
+fn save_api_key_for_openai_codex_refuses_config_storage() {
+    let err = save_api_key_for(ApiProvider::OpenaiCodex, "codex-token")
+        .expect_err("Codex OAuth tokens must not be persisted as provider API keys");
+
+    let message = err.to_string();
+    assert!(message.contains("OpenAI Codex uses OAuth"), "{message}");
+    assert!(message.contains("codex login"), "{message}");
+}
+
 /// Clearing credentials must not disturb comments, `api_key_env`, or
 /// provider tables with quoted names.
 #[test]
