@@ -87,6 +87,16 @@ if [[ "$(echo "$SETUP" | jq -r '.next_actions.constitution')" == "/constitution"
 else
   fail ".setup.next_actions.constitution wrong: $(echo "$SETUP" | jq -r '.next_actions.constitution')"
 fi
+if [[ "$(echo "$SETUP" | jq -r '.next_actions.persistence')" == "/setup persistence" ]]; then
+  pass ".setup.next_actions.persistence == /setup persistence"
+else
+  fail ".setup.next_actions.persistence wrong: $(echo "$SETUP" | jq -r '.next_actions.persistence')"
+fi
+if echo "$SETUP" | jq -e '.steps[] | select(.step == "persistence")' >/dev/null; then
+  pass ".setup.steps includes persistence"
+else
+  fail ".setup.steps missing persistence"
+fi
 rm -rf "$H"
 
 # --- Scenario: secret safety — a configured key must never appear in doctor --json ---

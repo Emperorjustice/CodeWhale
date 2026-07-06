@@ -65,6 +65,11 @@ impl RegisterCommand for SetupCmd {
             ) => CommandResult::action(AppAction::OpenSetupWizardAt {
                 step: SetupStep::RemoteRuntime,
             }),
+            Some("persistence" | "persist" | "storage") => {
+                CommandResult::action(AppAction::OpenSetupWizardAt {
+                    step: SetupStep::Persistence,
+                })
+            }
             Some(other) => CommandResult::error(format!(
                 "Unknown /setup target '{other}'. Try `/setup` to open the setup wizard."
             )),
@@ -158,6 +163,9 @@ mod tests {
             ("plugins", SetupStep::ToolsMcp),
             ("remote", SetupStep::RemoteRuntime),
             ("cloud", SetupStep::RemoteRuntime),
+            ("persistence", SetupStep::Persistence),
+            ("persist", SetupStep::Persistence),
+            ("storage", SetupStep::Persistence),
         ];
 
         for (arg, step) in cases {

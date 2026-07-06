@@ -39,9 +39,11 @@ use codewhale_config::{
 
 mod fleet_draft;
 mod model_draft;
+mod persistence;
 
 pub(crate) use fleet_draft::{draft_fleet_profile_with_model, workspace_fingerprint};
 pub(crate) use model_draft::draft_constitution_with_model;
+use persistence::SetupPersistenceFacts;
 
 /// Target lane for the once-per-version constitution checkpoint. The workspace
 /// package remains 0.8.66 until release approval, so this cannot read
@@ -87,7 +89,7 @@ impl SetupWizardStep for StaticSetupStep {
     }
 }
 
-const STEP_SPECS: [StaticSetupStep; 9] = [
+const STEP_SPECS: [StaticSetupStep; 10] = [
     StaticSetupStep {
         id: SetupStep::Language,
         title_id: MessageId::SetupStepLanguageTitle,
@@ -134,6 +136,12 @@ const STEP_SPECS: [StaticSetupStep; 9] = [
         id: SetupStep::RemoteRuntime,
         title_id: MessageId::SetupStepRemoteRuntimeTitle,
         why_id: MessageId::SetupStepRemoteRuntimeWhy,
+        required: false,
+    },
+    StaticSetupStep {
+        id: SetupStep::Persistence,
+        title_id: MessageId::SetupStepPersistenceTitle,
+        why_id: MessageId::SetupStepPersistenceWhy,
         required: false,
     },
     StaticSetupStep {
@@ -207,6 +215,7 @@ struct SetupRuntimeFacts {
     remote_providers_result: String,
     remote_mode_result: String,
     remote_result: String,
+    persistence: SetupPersistenceFacts,
     default_mode: String,
     approval_policy_value: String,
     project_override_warning: Option<String>,
@@ -253,6 +262,7 @@ impl Default for SetupRuntimeFacts {
             remote_providers_result: "provider registry not loaded".to_string(),
             remote_mode_result: "remote setup mode not loaded".to_string(),
             remote_result: "remote runtime not loaded".to_string(),
+            persistence: SetupPersistenceFacts::default(),
             default_mode: "agent".to_string(),
             approval_policy_value: "on-request".to_string(),
             project_override_warning: None,
@@ -421,6 +431,8 @@ impl SetupRuntimeFacts {
             "state={hotbar_state}, configured_slots={configured_hotbar_slots}, active_slots={active_hotbar_slots}, actions={}, warnings={hotbar_warning_count}",
             app.hotbar_actions.len()
         );
+        let codewhale_home = setup_codewhale_home_dir();
+        let persistence = SetupPersistenceFacts::from_app_config(app, config, &codewhale_home);
         let project_mcp_path = crate::mcp::workspace_mcp_config_path(&app.workspace);
         let mcp_global = if app.mcp_config_path.exists() {
             "global present"
@@ -439,8 +451,8 @@ impl SetupRuntimeFacts {
             project_mcp_path.display()
         );
         let skills_count = setup_skill_count_for(&app.skills_dir);
-        let tools_dir = setup_codewhale_home_dir().join("tools");
-        let plugins_dir = setup_codewhale_home_dir().join("plugins");
+        let tools_dir = codewhale_home.join("tools");
+        let plugins_dir = codewhale_home.join("plugins");
         let tools_count = setup_count_dir_entries(&tools_dir);
         let plugins_count = setup_count_dir_entries(&plugins_dir);
         let tools_mcp_skills_result =
@@ -550,6 +562,7 @@ impl SetupRuntimeFacts {
             remote_providers_result,
             remote_mode_result,
             remote_result,
+            persistence,
             default_mode: app.mode.as_setting().to_string(),
             approval_policy_value: config
                 .approval_policy
@@ -2401,6 +2414,21 @@ impl SetupWizardView {
         })
     }
 
+    fn commit_persistence_review(&mut self) -> ViewAction {
+        let mut state = self.state.clone();
+        state.set_step(
+            SetupStep::Persistence,
+            StepEntry::new(StepStatus::Verified, false, CONSTITUTION_CHECKPOINT_VERSION)
+                .with_result(self.facts.persistence.result.clone()),
+        );
+        self.state = state.clone();
+        self.move_next();
+        ViewAction::Emit(ViewEvent::SetupStateCommitRequested {
+            state,
+            message: tr(self.locale, MessageId::SetupPersistenceReviewed).to_string(),
+        })
+    }
+
     fn select_runtime_preset(&mut self, key: char) -> ViewAction {
         if let Some(preset) = SetupRuntimePreset::from_key(key)
             && preset != self.runtime_preset
@@ -2830,6 +2858,9 @@ impl ModalView for SetupWizardView {
             KeyCode::Enter if self.selected_step() == SetupStep::RemoteRuntime => {
                 self.commit_remote_runtime_review()
             }
+            KeyCode::Enter if self.selected_step() == SetupStep::Persistence => {
+                self.commit_persistence_review()
+            }
             KeyCode::Enter if self.selected_step() == SetupStep::Verification => {
                 self.commit_setup_report()
             }
@@ -3038,6 +3069,7 @@ impl SetupWizardView {
             SetupStep::Hotbar => self.hotbar_detail_lines(),
             SetupStep::ToolsMcp => self.tools_mcp_detail_lines(),
             SetupStep::RemoteRuntime => self.remote_runtime_detail_lines(),
+            SetupStep::Persistence => self.persistence_detail_lines(),
             SetupStep::Verification => self.verification_detail_lines(),
             _ => Vec::new(),
         }
@@ -3311,6 +3343,39 @@ impl SetupWizardView {
             ),
             Line::from(Span::styled(
                 tr(self.locale, MessageId::SetupRemoteReviewHint).to_string(),
+                Style::default().fg(palette::TEXT_MUTED),
+            )),
+        ]
+    }
+
+    fn persistence_detail_lines(&self) -> Vec<Line<'static>> {
+        vec![
+            self.detail_row(
+                MessageId::SetupPersistenceHomeLabel,
+                &self.facts.persistence.home_result,
+            ),
+            self.detail_row(
+                MessageId::SetupPersistenceConfigLabel,
+                &self.facts.persistence.config_result,
+            ),
+            self.detail_row(
+                MessageId::SetupPersistenceStateLabel,
+                &self.facts.persistence.state_result,
+            ),
+            self.detail_row(
+                MessageId::SetupPersistenceConstitutionLabel,
+                &self.facts.persistence.constitution_result,
+            ),
+            self.detail_row(
+                MessageId::SetupPersistenceMemoryLabel,
+                &self.facts.persistence.memory_result,
+            ),
+            self.detail_row(
+                MessageId::SetupPersistenceNotesLabel,
+                &self.facts.persistence.notes_result,
+            ),
+            Line::from(Span::styled(
+                tr(self.locale, MessageId::SetupPersistenceReviewHint).to_string(),
                 Style::default().fg(palette::TEXT_MUTED),
             )),
         ]
@@ -4383,6 +4448,7 @@ mod tests {
                 SetupStep::Hotbar,
                 SetupStep::ToolsMcp,
                 SetupStep::RemoteRuntime,
+                SetupStep::Persistence,
                 SetupStep::Verification,
             ]
         );
@@ -6207,6 +6273,79 @@ mod tests {
                 .is_some_and(|result| result.contains("mode=generate_only"))
         );
         assert!(message.contains("Remote runtime on-ramp recorded"));
+        assert_eq!(view.selected_step(), SetupStep::Persistence);
+    }
+
+    #[test]
+    fn persistence_detail_lines_show_read_only_path_facts() {
+        let facts = SetupRuntimeFacts {
+            persistence: SetupPersistenceFacts {
+                home_result: "explicit CODEWHALE_HOME at /tmp/cw-home (present)".to_string(),
+                config_result: "/tmp/cw-home/config.toml (present)".to_string(),
+                state_result: "/tmp/cw-home/setup_state.json (missing)".to_string(),
+                constitution_result: "/tmp/cw-home/constitution.json (present)".to_string(),
+                memory_result: "/tmp/cw-home/memory.md (missing)".to_string(),
+                notes_result: "/tmp/cw-home/notes.md (exists-not-file)".to_string(),
+                result: "home_source=explicit, home=present, config=present, setup_state=missing, constitution=present, memory=missing, notes=exists-not-file, mode=read_only_review".to_string(),
+            },
+            ..SetupRuntimeFacts::default()
+        };
+        let view = SetupWizardView::new_at_with_facts(
+            SetupState::default(),
+            Locale::En,
+            SetupStep::Persistence,
+            facts,
+        );
+
+        let text = lines_to_text(view.persistence_detail_lines());
+
+        assert!(text.contains("Home:"));
+        assert!(text.contains("explicit CODEWHALE_HOME"));
+        assert!(text.contains("/tmp/cw-home/config.toml"));
+        assert!(text.contains("/tmp/cw-home/setup_state.json (missing)"));
+        assert!(text.contains("Constitution:"));
+        assert!(text.contains("Memory:"));
+        assert!(text.contains("Notes:"));
+        assert!(
+            text.contains("does not create directories, read file contents, or rewrite config")
+        );
+    }
+
+    #[test]
+    fn persistence_review_records_optional_snapshot() {
+        let facts = SetupRuntimeFacts {
+            persistence: SetupPersistenceFacts {
+                result: "home_source=explicit, home=present, config=present, setup_state=missing, constitution=present, memory=missing, notes=missing, mode=read_only_review".to_string(),
+                ..SetupPersistenceFacts::default()
+            },
+            ..SetupRuntimeFacts::default()
+        };
+        let mut view = SetupWizardView::new_at_with_facts(
+            SetupState::default(),
+            Locale::En,
+            SetupStep::Persistence,
+            facts,
+        );
+
+        let action = view.handle_key(key(KeyCode::Enter));
+
+        let ViewAction::Emit(ViewEvent::SetupStateCommitRequested { state, message }) = action
+        else {
+            panic!("expected setup-state commit event");
+        };
+        assert_eq!(state.status(SetupStep::Persistence), StepStatus::Verified);
+        let entry = state
+            .steps
+            .get(&SetupStep::Persistence)
+            .expect("persistence setup entry");
+        assert!(!entry.required);
+        assert!(
+            entry
+                .result
+                .as_deref()
+                .is_some_and(|result| result.contains("mode=read_only_review"))
+        );
+        assert!(message.contains("Persistence paths recorded"));
         assert_eq!(view.selected_step(), SetupStep::Verification);
     }
 

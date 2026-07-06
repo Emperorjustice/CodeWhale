@@ -59,13 +59,15 @@ pub enum SetupStep {
     ToolsMcp,
     /// Remote / mobile runtime (later lane; tracked for completeness).
     RemoteRuntime,
+    /// Persistence paths for setup state, config, constitution, memory, and notes.
+    Persistence,
     /// Final verification / doctor / ready summary.
     Verification,
 }
 
 impl SetupStep {
     /// All steps in canonical first-run order.
-    pub const ALL: [SetupStep; 9] = [
+    pub const ALL: [SetupStep; 10] = [
         SetupStep::Language,
         SetupStep::ProviderModel,
         SetupStep::TrustSandbox,
@@ -74,6 +76,7 @@ impl SetupStep {
         SetupStep::Hotbar,
         SetupStep::ToolsMcp,
         SetupStep::RemoteRuntime,
+        SetupStep::Persistence,
         SetupStep::Verification,
     ];
 }
@@ -565,6 +568,34 @@ mod tests {
         let state = SetupState::default();
         assert!(!state.first_run_ready());
         assert_eq!(state.constitution_choice, ConstitutionChoice::Unset);
+    }
+
+    #[test]
+    fn persistence_is_optional_before_verification() {
+        let persistence_index = SetupStep::ALL
+            .iter()
+            .position(|step| *step == SetupStep::Persistence)
+            .expect("persistence step");
+        let verification_index = SetupStep::ALL
+            .iter()
+            .position(|step| *step == SetupStep::Verification)
+            .expect("verification step");
+
+        assert!(persistence_index < verification_index);
+
+        let mut state = SetupState::default();
+        state.set_step(SetupStep::Language, verified("0.8.67"));
+        state.set_step(SetupStep::ProviderModel, verified("0.8.67"));
+        state.runtime_posture_source = RuntimePostureSource::Confirmed;
+        state.constitution_choice = ConstitutionChoice::Bundled;
+        assert!(state.first_run_ready());
+
+        state.set_step(
+            SetupStep::Persistence,
+            StepEntry::new(StepStatus::NeedsAction, false, "0.8.67"),
+        );
+        assert!(state.first_run_ready());
+        assert!(!state.operate_ready());
     }
 
     #[test]

@@ -3891,7 +3891,7 @@ fn print_doctor_setup_report(
         );
     }
     println!(
-        "  · next actions: /constitution (standing law), /setup report (readiness), /provider or /model (route), /config (runtime posture), /setup fleet (Operate/Fleet readiness), /fleet setup (explicit profile authoring), /setup hotbar (optional shortcuts), /setup tools (Tools/MCP readiness), /setup remote (remote runtime on-ramp)"
+        "  · next actions: /constitution (standing law), /setup report (readiness), /provider or /model (route), /config (runtime posture), /setup fleet (Operate/Fleet readiness), /fleet setup (explicit profile authoring), /setup hotbar (optional shortcuts), /setup tools (Tools/MCP readiness), /setup remote (remote runtime on-ramp), /setup persistence (path review)"
     );
     for step in codewhale_config::SetupStep::ALL {
         let entry = state.steps.get(&step);
@@ -4219,6 +4219,7 @@ fn doctor_setup_report_json(config: &Config, workspace: &Path) -> serde_json::Va
             "hotbar": "/setup hotbar",
             "tools_mcp": "/setup tools",
             "remote_runtime": "/setup remote",
+            "persistence": "/setup persistence",
         },
         "steps": steps,
     })
@@ -4232,6 +4233,7 @@ fn setup_step_id(step: codewhale_config::SetupStep) -> &'static str {
         codewhale_config::SetupStep::ToolsMcp => "tools_mcp",
         codewhale_config::SetupStep::Hotbar => "hotbar",
         codewhale_config::SetupStep::RemoteRuntime => "remote_runtime",
+        codewhale_config::SetupStep::Persistence => "persistence",
         codewhale_config::SetupStep::Constitution => "constitution",
         codewhale_config::SetupStep::OperateFleet => "operate_fleet",
         codewhale_config::SetupStep::Verification => "verification",
@@ -8453,6 +8455,7 @@ mod doctor_setup_state_tests {
         assert_eq!(report["next_actions"]["hotbar"], "/setup hotbar");
         assert_eq!(report["next_actions"]["tools_mcp"], "/setup tools");
         assert_eq!(report["next_actions"]["remote_runtime"], "/setup remote");
+        assert_eq!(report["next_actions"]["persistence"], "/setup persistence");
         assert_eq!(
             report["checkpoint_version"],
             crate::tui::setup::CONSTITUTION_CHECKPOINT_VERSION
