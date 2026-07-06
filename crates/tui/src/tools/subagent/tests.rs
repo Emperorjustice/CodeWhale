@@ -1337,7 +1337,7 @@ fn test_spawn_model_route_profile_precedence() {
     );
 
     let mut strong = custom_fleet_profile("builder");
-    strong.loadout = codewhale_config::FleetLoadout::Strong;
+    strong.loadout = codewhale_config::FleetLoadout::Custom("strong".to_string());
     let roster = fleet_roster_with("architect", strong);
     assert_eq!(
         spawn_model_route(&request, roster.get("architect")),

@@ -108,9 +108,12 @@ impl FleetRoster {
         Self { members }
     }
 
-    /// The default party. Built-ins carry no custom prompts and no permission
-    /// grants: behavior comes from the role posture / system prompts, and
-    /// permissions stay at the [`FleetProfilePermissions::default`] floor.
+    /// The default party. Built-ins carry no permission grants (permissions
+    /// stay at the [`FleetProfilePermissions::default`] floor); behavior comes
+    /// from the role posture / system prompts plus the role `instructions`
+    /// below, which encode the operation hierarchy: the **operator** (the
+    /// session's `/model` selection) runs the operation and assigns managers
+    /// to workflows; a **manager** is the middle manager of one workflow.
     #[must_use]
     pub fn built_in_members() -> Vec<AgentProfile> {
         [
@@ -118,53 +121,67 @@ impl FleetRoster {
                 "manager",
                 FleetSlot::Manager,
                 FleetLoadout::Inherit,
-                "Coordinates a run: plans the work, splits it into bounded tasks, and dispatches workers.",
+                "Middle manager for one workflow: decomposes it into bounded tasks, dispatches workers, integrates results, and reports to the operator.",
+                Some(
+                    "You lead exactly one workflow. Decompose it into bounded tasks, dispatch them to the right roles, keep work-in-progress small, integrate the results, and report a concise receipt (what was done, evidence, gaps) upward. Do not take on work outside your workflow.",
+                ),
             ),
             (
                 "operator",
                 FleetSlot::Operator,
                 FleetLoadout::Inherit,
-                "Preferred helm for workflow coordination: plans, routes, reviews outputs, and calls other Fleet slots.",
+                "The helm of the operation — the session's /model selection. Assigns managers to workflows, routes work between them, arbitrates conflicts, and reviews what comes back.",
+                Some(
+                    "You run the operation, not individual workflows. Assign a manager per workflow, route work and context between them, arbitrate conflicts and priorities, review the receipts that come back, and decide what runs next. Delegate execution; keep judgment.",
+                ),
             ),
             (
                 "scout",
                 FleetSlot::Scout,
                 FleetLoadout::Fast,
                 "Fast read-only reconnaissance: find files, map code, gather evidence.",
+                None,
             ),
             (
                 "builder",
                 FleetSlot::Implementer,
                 FleetLoadout::Inherit,
                 "Writes code: implements bounded tasks with write and shell access.",
+                None,
             ),
             (
                 "reviewer",
                 FleetSlot::Reviewer,
                 FleetLoadout::Inherit,
-                "Read-only code review: correctness, regressions, missing tests.",
+                "Adversarial code review: assumes the change is broken and tries to prove it — regressions, missing tests, unhandled cases. Read-only.",
+                Some(
+                    "Be adversarial: assume the change is wrong until the evidence proves otherwise. Actively try to refute the claims made about the work — hunt regressions, missing tests, unhandled edge cases, and quiet behavior changes. Report severity-scored findings with file:line evidence; if nothing survives your attack, say so plainly. Never patch.",
+                ),
             ),
             (
                 "verifier",
                 FleetSlot::Verifier,
                 FleetLoadout::Inherit,
                 "Runs builds and tests to verify claims; reports evidence, does not patch.",
+                None,
             ),
             (
                 "synthesizer",
                 FleetSlot::Summarizer,
                 FleetLoadout::Fast,
                 "Read-only synthesis: merge findings into one coherent report.",
+                None,
             ),
             (
                 "general",
                 FleetSlot::General,
                 FleetLoadout::Inherit,
                 "General-purpose worker with full capabilities.",
+                None,
             ),
         ]
         .into_iter()
-        .map(|(id, slot, loadout, description)| AgentProfile {
+        .map(|(id, slot, loadout, description, instructions)| AgentProfile {
             id: id.to_string(),
             display_name: None,
             description: Some(description.to_string()),
@@ -173,7 +190,7 @@ impl FleetRoster {
                 role: FleetRole {
                     name: id.to_string(),
                     description: Some(description.to_string()),
-                    instructions: None,
+                    instructions: instructions.map(str::to_string),
                 },
                 loadout,
                 model: None,
@@ -302,9 +319,15 @@ mod tests {
                 member.id
             );
             assert!(member.profile.model.is_none(), "{}", member.id);
-            assert!(
-                member.profile.role.instructions.is_none(),
-                "built-in {} needs no custom prompt",
+            // The coordination hierarchy (operator/manager) and the
+            // adversarial reviewer carry role doctrine; the remaining
+            // built-ins get behavior from posture / system prompts alone.
+            let carries_doctrine =
+                matches!(member.id.as_str(), "manager" | "operator" | "reviewer");
+            assert_eq!(
+                member.profile.role.instructions.is_some(),
+                carries_doctrine,
+                "built-in {} instructions presence",
                 member.id
             );
             assert!(member.description.is_some(), "{}", member.id);

@@ -1210,7 +1210,6 @@ pub enum FleetSlot {
     Implementer,
     Reviewer,
     Verifier,
-    ToolHeavy,
     Operator,
     Summarizer,
     #[default]
@@ -1227,7 +1226,6 @@ impl FleetSlot {
             Self::Implementer => "implementer",
             Self::Reviewer => "reviewer",
             Self::Verifier => "verifier",
-            Self::ToolHeavy => "tool-heavy",
             Self::Operator => "operator",
             Self::Summarizer => "summarizer",
             Self::General => "general",
@@ -1243,10 +1241,12 @@ impl FleetSlot {
             "implementer" | "builder" => Self::Implementer,
             "reviewer" => Self::Reviewer,
             "verifier" | "tester" => Self::Verifier,
-            "tool-heavy" | "tool_heavy" => Self::ToolHeavy,
             "operator" | "incident" | "incident-worker" => Self::Operator,
             "summarizer" | "reducer" => Self::Summarizer,
             "general" | "" => Self::General,
+            // Removed slots (e.g. the old "tool-heavy") and unknown names parse
+            // as Custom, which dispatches on the General surface — identical to
+            // the behavior the removed variants had.
             other => Self::Custom(other.to_string()),
         }
     }
@@ -1274,15 +1274,14 @@ impl<'de> Deserialize<'de> for FleetSlot {
 /// Model class or route-role hint for a profile.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum FleetLoadout {
+    /// Reuse the active session route (the operator's model). Default.
     #[default]
     Inherit,
-    Strong,
+    /// Route to the provider's faster/cheaper model class for wide fan-out.
     Fast,
-    Balanced,
-    DeepReasoning,
-    Code,
-    Review,
-    ToolHeavy,
+    /// Unrecognized loadout names parse here (including the retired
+    /// strong/balanced/deep-reasoning/code/review/tool-heavy tiers, which
+    /// never routed differently). Treated as auto routing.
     Custom(String),
 }
 
@@ -1291,13 +1290,7 @@ impl FleetLoadout {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Inherit => "inherit",
-            Self::Strong => "strong",
             Self::Fast => "fast",
-            Self::Balanced => "balanced",
-            Self::DeepReasoning => "deep-reasoning",
-            Self::Code => "code",
-            Self::Review => "review",
-            Self::ToolHeavy => "tool-heavy",
             Self::Custom(value) => value.as_str(),
         }
     }
@@ -1306,13 +1299,10 @@ impl FleetLoadout {
     pub fn from_name(value: &str) -> Self {
         match value.trim() {
             "inherit" | "default" | "auto" | "" => Self::Inherit,
-            "strong" => Self::Strong,
             "fast" => Self::Fast,
-            "balanced" => Self::Balanced,
-            "deep-reasoning" | "deep_reasoning" | "reasoning" => Self::DeepReasoning,
-            "code" | "coding" => Self::Code,
-            "review" | "reviewer" => Self::Review,
-            "tool-heavy" | "tool_heavy" => Self::ToolHeavy,
+            // Retired tiers (strong/balanced/deep-reasoning/code/review/
+            // tool-heavy) and unknown names parse as Custom → auto routing,
+            // exactly what those tiers resolved to before removal.
             other => Self::Custom(other.to_string()),
         }
     }

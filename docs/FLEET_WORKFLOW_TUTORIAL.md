@@ -94,7 +94,7 @@ one bounded docs-note worker. It keeps secrets disabled and caps trust at
       "worker": {
         "role": "builder",
         "tools": ["rg", "sed"],
-        "model_class": "balanced"
+        "model_class": "inherit"
       },
       "workspace": {
         "required_files": ["docs/FLEET.md"],

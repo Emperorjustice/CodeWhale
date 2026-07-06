@@ -5383,7 +5383,9 @@ concurrency = 3
         profile.role.instructions.as_deref(),
         Some("Check the patch and report evidence.")
     );
-    assert_eq!(profile.loadout, FleetLoadout::Review);
+    // "review" was a retired decorative tier: it parses as Custom and keeps
+    // the same auto routing it always had.
+    assert_eq!(profile.loadout, FleetLoadout::Custom("review".to_string()));
     assert_eq!(profile.model.as_deref(), Some("deepseek-v4-pro"));
     assert!(!profile.permissions.allow_shell);
     assert!(!profile.permissions.trust);
@@ -5394,10 +5396,24 @@ concurrency = 3
 
 #[test]
 fn fleet_loadout_accepts_default_model_classes() {
-    assert_eq!(FleetLoadout::from_name("strong"), FleetLoadout::Strong);
-    assert_eq!(FleetLoadout::from_name("balanced"), FleetLoadout::Balanced);
     assert_eq!(FleetLoadout::from_name("fast"), FleetLoadout::Fast);
-    assert_eq!(FleetLoadout::Strong.as_str(), "strong");
+    assert_eq!(FleetLoadout::from_name("inherit"), FleetLoadout::Inherit);
+    assert_eq!(FleetLoadout::from_name(""), FleetLoadout::Inherit);
+    assert_eq!(FleetLoadout::Fast.as_str(), "fast");
+    // Retired tiers stay parseable as Custom so old configs keep loading
+    // with identical (auto) routing.
+    assert_eq!(
+        FleetLoadout::from_name("strong"),
+        FleetLoadout::Custom("strong".to_string())
+    );
+    assert_eq!(
+        FleetLoadout::from_name("tool-heavy"),
+        FleetLoadout::Custom("tool-heavy".to_string())
+    );
+    assert_eq!(
+        FleetLoadout::Custom("strong".to_string()).as_str(),
+        "strong"
+    );
 }
 
 #[test]

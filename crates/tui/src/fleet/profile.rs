@@ -678,7 +678,10 @@ concurrency = 2
             profile.role.instructions.as_deref(),
             Some("Review the patch and produce verification evidence.")
         );
-        assert_eq!(profile.loadout, FleetLoadout::DeepReasoning);
+        assert_eq!(
+            profile.loadout,
+            FleetLoadout::Custom("deep-reasoning".to_string())
+        );
         assert!(profile.permissions.allow_shell);
         assert!(profile.permissions.trust);
         assert!(!profile.permissions.approval_required);
@@ -755,7 +758,10 @@ posture = "read-only"
             profile.profile.role.instructions.as_deref(),
             Some("Focus on regressions, missing tests, and fragile assumptions.")
         );
-        assert_eq!(profile.profile.loadout, FleetLoadout::Balanced);
+        assert_eq!(
+            profile.profile.loadout,
+            FleetLoadout::Custom("balanced".to_string())
+        );
         assert_eq!(profile.profile.model.as_deref(), Some("deepseek-v4-pro"));
         assert_eq!(
             profile.profile.permissions,

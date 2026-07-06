@@ -435,7 +435,7 @@ mod tests {
                     description: None,
                     instructions: Some(instructions.to_string()),
                 },
-                loadout: FleetLoadout::Balanced,
+                loadout: FleetLoadout::Inherit,
                 model: None,
                 permissions: FleetProfilePermissions::default(),
                 delegation: FleetDelegationHints::default(),

@@ -91,37 +91,21 @@ const ROLES: [Choice; 8] = [
 ];
 
 /// Model-routing classes. `label` is mapped to a profile `model_class_hint` by
-/// [`model_class_hint`]; default is `inherit` (reuse the active route).
-const MODEL_CLASSES: [Choice; 6] = [
+/// [`model_class_hint`]; default is `inherit` (reuse the active route). Only
+/// classes with real routing behavior are offered: `inherit` follows the
+/// session route (the operator's model) and `fast` routes to the provider's
+/// faster class. The retired decorative tiers (balanced/strong/deep-reasoning/
+/// tool-heavy) never routed differently and were removed.
+const MODEL_CLASSES: [Choice; 2] = [
     Choice {
         label: "inherit",
         summary: "Same model as now",
-        description: "Reuse the active provider, model, and reasoning for this worker. Recommended default.",
+        description: "Reuse the active provider, model, and reasoning for this worker — the operator's route. Recommended default.",
     },
     Choice {
         label: "fast",
         summary: "Low-latency scout",
-        description: "An opt-in low-latency class for wide fan-out and quick reconnaissance.",
-    },
-    Choice {
-        label: "balanced",
-        summary: "Everyday build/review",
-        description: "A balanced class for normal build and review work.",
-    },
-    Choice {
-        label: "strong",
-        summary: "Hard problems",
-        description: "The strongest class for security, release, and architecture work.",
-    },
-    Choice {
-        label: "deep-reasoning",
-        summary: "More reasoning",
-        description: "Higher reasoning effort when the active route supports it.",
-    },
-    Choice {
-        label: "tool-heavy",
-        summary: "Operator workflows",
-        description: "Shell- and artifact-heavy operator workflows.",
+        description: "Route to the provider's faster, cheaper class for wide fan-out and quick reconnaissance.",
     },
 ];
 
@@ -837,11 +821,6 @@ fn profile_file_status(workspace: &Path) -> (String, String) {
 fn model_class_hint(label: &str) -> &'static str {
     match label {
         "fast" => "fast",
-        "balanced" => "balanced",
-        // "strong" = security/release/architecture → the strongest schema class.
-        "strong" => "deep-reasoning",
-        "deep-reasoning" => "deep-reasoning",
-        "tool-heavy" => "tool-heavy",
         _ => "inherit",
     }
 }

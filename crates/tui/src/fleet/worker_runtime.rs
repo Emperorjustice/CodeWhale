@@ -461,8 +461,11 @@ pub(crate) fn fleet_role_to_agent_type(role: Option<&str>) -> SubAgentType {
         Some("planner") => SubAgentType::Plan,
         Some("explorer") => SubAgentType::Explore,
         // Coordination happens through delegation, which needs the full
-        // General surface (#fleet-roster cutover (v0.8.67)).
-        Some("manager") | Some("coordinator") => SubAgentType::General,
+        // General surface (#fleet-roster cutover (v0.8.67)). The operator is
+        // the helm of the whole operation (it assigns managers to workflows);
+        // the manager is the middle manager of one workflow. Both coordinate,
+        // so both get the General surface — explicitly, not by fall-through.
+        Some("manager") | Some("coordinator") | Some("operator") => SubAgentType::General,
         // Synthesis is read-only, no shell: it must never fall through to
         // General's full-write posture (#fleet-roster cutover (v0.8.67)).
         Some("synthesizer") | Some("summarizer") | Some("reducer") => SubAgentType::Plan,
@@ -551,13 +554,7 @@ pub(crate) fn fleet_model_route_for_loadout(
     match loadout {
         codewhale_config::FleetLoadout::Inherit => ModelRoute::Inherit,
         codewhale_config::FleetLoadout::Fast => ModelRoute::Faster,
-        codewhale_config::FleetLoadout::Strong
-        | codewhale_config::FleetLoadout::Balanced
-        | codewhale_config::FleetLoadout::DeepReasoning
-        | codewhale_config::FleetLoadout::Code
-        | codewhale_config::FleetLoadout::Review
-        | codewhale_config::FleetLoadout::ToolHeavy
-        | codewhale_config::FleetLoadout::Custom(_) => ModelRoute::Auto,
+        codewhale_config::FleetLoadout::Custom(_) => ModelRoute::Auto,
     }
 }
 
@@ -814,6 +811,17 @@ mod tests {
     }
 
     #[test]
+    fn fleet_role_operator_maps_to_general_explicitly() {
+        // The operator coordinates the whole operation (assigns managers to
+        // workflows), so it needs the full General surface — by an explicit
+        // match arm, not the unknown-role fall-through.
+        assert_eq!(
+            fleet_role_to_agent_type(Some("operator")),
+            SubAgentType::General
+        );
+    }
+
+    #[test]
     fn fleet_role_synthesizer_family_maps_to_read_only_plan() {
         // A synthesizer must never fall through to General's full-write
         // posture; Plan is read-only with no shell.
@@ -944,7 +952,7 @@ mod tests {
             "audit",
             "reviewer",
             None,
-            codewhale_config::FleetLoadout::Review,
+            codewhale_config::FleetLoadout::Inherit,
         );
         profile.profile.model = Some("deepseek-v4-flash".to_string());
         let task = fleet_task(
@@ -1052,7 +1060,7 @@ mod tests {
             "reviewer",
             "reviewer",
             Some("Focus on regressions and missing tests."),
-            codewhale_config::FleetLoadout::Balanced,
+            codewhale_config::FleetLoadout::Custom("balanced".to_string()),
         );
         let task = fleet_task(
             "review",
@@ -1168,7 +1176,7 @@ mod tests {
             "audit",
             "reviewer",
             None,
-            codewhale_config::FleetLoadout::Review,
+            codewhale_config::FleetLoadout::Inherit,
         );
         profile.profile.model = Some("deepseek-v4-pro".to_string());
         let pinned_task = fleet_task(
@@ -1217,7 +1225,7 @@ mod tests {
             "reviewer",
             "reviewer",
             Some("Focus on regressions and missing tests."),
-            codewhale_config::FleetLoadout::Balanced,
+            codewhale_config::FleetLoadout::Inherit,
         );
         profile.profile.model = Some("glm-5.2".to_string());
         let worker = FleetWorkerSpec {
@@ -1551,14 +1559,17 @@ mod tests {
             ModelRoute::Inherit,
         );
         assert_eq!(
-            fleet_model_route_for_loadout("auto", &codewhale_config::FleetLoadout::Strong),
+            fleet_model_route_for_loadout(
+                "auto",
+                &codewhale_config::FleetLoadout::Custom("strong".to_string())
+            ),
             ModelRoute::Auto,
         );
         // An explicit model always pins to a Fixed route, regardless of loadout.
         assert_eq!(
             fleet_model_route_for_loadout(
                 "deepseek-v4-flash",
-                &codewhale_config::FleetLoadout::Strong
+                &codewhale_config::FleetLoadout::Custom("strong".to_string())
             ),
             ModelRoute::Fixed("deepseek-v4-flash".to_string()),
         );
