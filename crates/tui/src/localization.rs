@@ -41,6 +41,7 @@ impl Locale {
         }
     }
 
+    /// Every locale the TUI exposes in pickers and runtime resolution.
     #[allow(dead_code)]
     pub fn shipped() -> &'static [Self] {
         &[
@@ -52,6 +53,27 @@ impl Locale {
             Self::Es419,
             Self::Vi,
         ]
+    }
+
+    /// Complete UI packs held to `en.json` parity. `zh-Hant` is intentionally
+    /// excluded — it remains selectable but falls back to English for missing
+    /// keys until the pack catches up (#4057).
+    #[allow(dead_code)]
+    pub fn shipped_complete() -> &'static [Self] {
+        &[
+            Self::En,
+            Self::Ja,
+            Self::ZhHans,
+            Self::PtBr,
+            Self::Es419,
+            Self::Vi,
+        ]
+    }
+
+    #[must_use]
+    #[allow(dead_code)]
+    pub fn is_partial_pack(self) -> bool {
+        matches!(self, Self::ZhHant)
     }
 }
 
@@ -1531,14 +1553,38 @@ mod tests {
     }
 
     #[test]
-    fn shipped_first_pack_has_no_missing_core_messages() {
-        for locale in Locale::shipped() {
+    fn shipped_complete_packs_have_no_missing_core_messages() {
+        for locale in Locale::shipped_complete() {
             assert!(
                 missing_message_ids(*locale).is_empty(),
                 "{} is missing messages",
                 locale.tag()
             );
         }
+    }
+
+    #[test]
+    fn zh_hant_is_scoped_as_partial_pack() {
+        assert!(
+            Locale::ZhHant.is_partial_pack(),
+            "zh-Hant must be marked partial until it reaches en.json parity"
+        );
+        let en_keys = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(
+            locale_json_source(Locale::En),
+        )
+        .expect("en locale json");
+        let zh_hant_keys = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(
+            locale_json_source(Locale::ZhHant),
+        )
+        .expect("zh-Hant locale json");
+        assert!(
+            zh_hant_keys.len() < en_keys.len(),
+            "partial zh-Hant should not claim full parity"
+        );
+        assert!(
+            !Locale::shipped_complete().contains(&Locale::ZhHant),
+            "parity gates must exclude partial zh-Hant"
+        );
     }
 
     #[test]
@@ -1549,7 +1595,7 @@ mod tests {
             .filter(|id| id.starts_with("Setup"))
             .collect::<Vec<_>>();
 
-        for locale in Locale::shipped() {
+        for locale in Locale::shipped_complete() {
             let messages = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(
                 locale_json_source(*locale),
             )
@@ -1576,7 +1622,7 @@ mod tests {
             MessageId::AppModePlanHint,
             MessageId::AppModeYoloHint,
         ];
-        for locale in Locale::shipped() {
+        for locale in Locale::shipped_complete() {
             if *locale == Locale::En {
                 continue;
             }
@@ -1604,7 +1650,7 @@ mod tests {
 
     #[test]
     fn provider_description_is_present_for_all_locales() {
-        for locale in Locale::shipped() {
+        for locale in Locale::shipped_complete() {
             let description = tr(*locale, MessageId::CmdProviderDescription);
             assert!(
                 !description.is_empty(),
